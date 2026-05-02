@@ -37,7 +37,7 @@ providersRoute.post('/', async (c) => {
 
   const schema = z.object({
     name: z.string().min(1).max(100),
-    provider_type: z.enum(['openai', 'anthropic', 'google', 'gemini', 'moonshot', 'deepseek', 'zhipu', 'bailian', 'ollama', 'custom']),
+    provider_type: z.enum(['openai', 'anthropic', 'google', 'gemini', 'moonshot', 'deepseek', 'zhipu', 'bailian', 'ollama', 'minimax', 'custom']),
     base_url: z.string(),
     api_key: z.string(),
     models: z.array(z.string()).optional(),
@@ -45,18 +45,19 @@ providersRoute.post('/', async (c) => {
 
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ 
-      success: false, 
-      error: { code: 'PROVIDER_400', message: '参数校验失败', details: parsed.error.flatten() } 
+    console.error('[Provider Create] Validation error:', JSON.stringify(parsed.error.flatten()));
+    return c.json({
+      success: false,
+      error: { code: 'PROVIDER_400', message: '参数校验失败', details: parsed.error.flatten() }
     }, 400);
   }
 
+  console.log('[Provider Create] Valid input:', JSON.stringify(parsed.data));
+
   const validation = providerBank.resolveModelConfig(parsed.data.provider_type, parsed.data.models?.[0] || '');
+  console.log('[Provider Create] Model validation result:', validation);
   if (!validation.valid) {
-    return c.json({ 
-      success: false, 
-      error: { code: 'PROVIDER_422', message: validation.message } 
-    }, 422);
+    console.warn('[Provider Create] Model validation warning:', validation.message);
   }
 
   let models: string[] = parsed.data.models || [];

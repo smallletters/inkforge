@@ -1,15 +1,16 @@
 import { OpenAIAdapter, AnthropicAdapter, OpenAICompatibleAdapter, GeminiAdapter } from './adapters/index';
 import { ProviderAdapter, ChatMessage, ChatOptions, ChatResponse } from './adapters/types';
 
-const PROVIDER_MAP: Record<string, { baseUrl: string; adapterClass: new (baseUrl: string, apiKey: string, label?: string) => ProviderAdapter }> = {
-  openai: { baseUrl: 'https://api.openai.com', adapterClass: OpenAIAdapter as any },
-  anthropic: { baseUrl: 'https://api.anthropic.com', adapterClass: AnthropicAdapter as any },
-  moonshot: { baseUrl: 'https://api.moonshot.cn', adapterClass: OpenAICompatibleAdapter as any },
-  deepseek: { baseUrl: 'https://api.deepseek.com', adapterClass: OpenAICompatibleAdapter as any },
-  zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', adapterClass: OpenAICompatibleAdapter as any },
-  bailian: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode', adapterClass: OpenAICompatibleAdapter as any },
-  google: { baseUrl: 'https://generativelanguage.googleapis.com', adapterClass: GeminiAdapter as any },
-  gemini: { baseUrl: 'https://generativelanguage.googleapis.com', adapterClass: GeminiAdapter as any },
+const PROVIDER_MAP: Record<string, { baseUrl: string; adapterClass: new (baseUrl: string, apiKey: string, label?: string) => ProviderAdapter; validModels?: string[] }> = {
+  openai: { baseUrl: 'https://api.openai.com', adapterClass: OpenAIAdapter as any, validModels: ['gpt-4o', 'gpt-4o-mini', 'gpt-4o-2024-05-13', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo'] },
+  anthropic: { baseUrl: 'https://api.anthropic.com', adapterClass: AnthropicAdapter as any, validModels: ['claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-sonnet-20240229', 'claude-3-haiku-20240229'] },
+  moonshot: { baseUrl: 'https://api.moonshot.cn', adapterClass: OpenAICompatibleAdapter as any, validModels: ['kimi-k2.5', 'kimi-latest', 'moonshot-v1-128k'] },
+  deepseek: { baseUrl: 'https://api.deepseek.com', adapterClass: OpenAICompatibleAdapter as any, validModels: ['deepseek-chat', 'deepseek-coder', 'deepseek-v3'] },
+  zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', adapterClass: OpenAICompatibleAdapter as any, validModels: ['glm-4', 'glm-4-flash', 'glm-4-plus', 'glm-3-turbo'] },
+  bailian: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode', adapterClass: OpenAICompatibleAdapter as any, validModels: ['qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-max-longcontext'] },
+  google: { baseUrl: 'https://generativelanguage.googleapis.com', adapterClass: GeminiAdapter as any, validModels: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro-exp'] },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com', adapterClass: GeminiAdapter as any, validModels: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-1.5-pro-exp'] },
+  minimax: { baseUrl: 'https://api.minimax.chat/v1', adapterClass: OpenAICompatibleAdapter as any, validModels: ['MiniMax-M2.7', 'MiniMax-M2.5', 'MiniMax-M2.1', 'MiniMax-M2', 'abab6-chat', 'abab5.5-chat'] },
   ollama: { baseUrl: 'http://localhost:11434', adapterClass: OpenAICompatibleAdapter as any },
 };
 
@@ -129,7 +130,30 @@ export class ProviderBank {
   }
 
   validateModel(serviceName: string, model: string): boolean {
-    return true;
+    const adapter = this.adapters.get(serviceName);
+    if (!adapter) return true;
+
+    const providerInfo = Object.entries(PROVIDER_MAP).find(([key]) => {
+      const adapterKey = `${serviceName}`;
+      return serviceName.includes(key);
+    });
+
+    if (!providerInfo || providerInfo[1].validModels === undefined) {
+      return true;
+    }
+
+    const validModels = providerInfo[1].validModels!;
+    const isValid = validModels.some(validModel =>
+      model.toLowerCase().includes(validModel.toLowerCase()) ||
+      validModel.toLowerCase().includes(model.toLowerCase())
+    );
+
+    return isValid;
+  }
+
+  getValidModels(providerType: string): string[] {
+    const info = PROVIDER_MAP[providerType];
+    return info?.validModels ?? [];
   }
 
   getSupportedProviders(): string[] {
@@ -140,8 +164,29 @@ export class ProviderBank {
    * Validate model belongs to the given provider type.
    */
   resolveModelConfig(providerType: string, model: string): { valid: boolean; message?: string } {
-    if (!this.validateModel(providerType, model)) {
-      return { valid: false, message: `模型 ${model} 不属于 ${providerType} 服务商` };
+    if (!model || model.trim() === '') {
+      return { valid: true };
+    }
+
+    const info = PROVIDER_MAP[providerType];
+    if (!info) {
+      return { valid: true };
+    }
+
+    if (info.validModels === undefined || info.validModels.length === 0) {
+      return { valid: true };
+    }
+
+    const isValid = info.validModels.some(validModel =>
+      model.toLowerCase().includes(validModel.toLowerCase()) ||
+      validModel.toLowerCase().includes(model.toLowerCase())
+    );
+
+    if (!isValid) {
+      return {
+        valid: false,
+        message: `模型 ${model} 不属于 ${providerType} 服务商。有效模型: ${info.validModels.slice(0, 10).join(', ')}${info.validModels.length > 10 ? '...' : ''}`
+      };
     }
     return { valid: true };
   }

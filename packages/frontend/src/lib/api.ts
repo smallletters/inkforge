@@ -82,10 +82,21 @@ export const api = {
     list: (novelId: string) => request<any>(`/novels/${novelId}/truth-files`),
     get: (novelId: string, name: string) => request<any>(`/novels/${novelId}/truth-files/${name}`),
   },
+  export: {
+    create: (novelId: string, format: string, opts?: { chapters?: string; chapter_range?: { start: number; end: number } }) => request<any>(`/novels/${novelId}/export`, { method: 'POST', body: JSON.stringify({ format, chapters: opts?.chapters ?? 'all', chapter_range: opts?.chapter_range }) }),
+    formats: (novelId: string) => request<any>(`/novels/${novelId}/export/formats`),
+  },
+  import: {
+    upload: (data: { title: string; genre: string; file_content: string; file_type: string }) => request<any>('/novels/import', { method: 'POST', body: JSON.stringify(data) }),
+    formats: () => request<any>('/novels/import/formats'),
+  },
   agents: {
+    list: () => request<any[]>('/agents-api/'),
     configs: () => request<any[]>('/agents/config'),
     config: (name: string) => request<any>(`/agents/${name}/config`),
     update: (name: string, data: { provider_id?: string; model?: string; system_prompt?: string; temperature?: number; max_tokens?: number }) => request<any>(`/agents/${name}/config`, { method: 'PUT', body: JSON.stringify(data) }),
+    versions: (name: string) => request<any[]>(`/agents/${name}/versions`),
+    rollback: (name: string, version: number) => request<any>(`/agents/${name}/rollback`, { method: 'POST', body: JSON.stringify({ version }) }),
   },
   providers: {
     list: () => request<any[]>('/providers'),
@@ -96,13 +107,12 @@ export const api = {
   },
   pipeline: {
     status: (id: string) => request<any>(`/pipeline/${id}/status`),
+    active: (novelId: string) => request<any>(`/pipeline/novel/${novelId}/active`),
+    cancel: (id: string) => request<any>(`/pipeline/${id}/cancel`, { method: 'POST' }),
   },
   truth: {
     files: (novelId: string) => request<{ files: any[] }>(`/novels/${novelId}/truth-files`),
     file: (novelId: string, name: string) => request<any>(`/novels/${novelId}/truth-files/${name}`),
-  },
-  export: {
-    create: (novelId: string, format: string) => request<any>(`/novels/${novelId}/export`, { method: 'POST', body: JSON.stringify({ format }) }),
   },
   chat: {
     send: (data: { novel_id?: string; messages: { role: 'user' | 'assistant'; content: string }[]; extracted_info?: { genre?: string; title?: string; outline?: string; characters?: string; world_setting?: string } }) =>
