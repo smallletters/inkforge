@@ -131,7 +131,7 @@ export interface TruthFileDelta {
     version: number;
 }
 export interface SseEvent {
-    event: 'pipeline.start' | 'agent.start' | 'agent.complete' | 'agent.error' | 'audit.complete' | 'audit.revision' | 'pipeline.complete' | 'pipeline.fail' | 'pipeline.progress';
+    event: 'pipeline.start' | 'agent.start' | 'agent.complete' | 'agent.error' | 'audit.complete' | 'audit.revision' | 'pipeline.complete' | 'pipeline.fail' | 'pipeline.progress' | 'chat.update' | 'chat.message';
     data: Record<string, unknown>;
 }
 export interface ApiResponse<T = unknown> {

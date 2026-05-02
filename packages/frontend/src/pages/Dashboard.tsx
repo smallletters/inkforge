@@ -446,6 +446,7 @@ export default function Dashboard() {
                     key={i} 
                     className="btn-ghost w-full justify-start px-4 py-3 rounded-md transition-all duration-200 hover:bg-hover"
                     aria-label={s.label}
+                    onClick={() => handleShortcutClick(s.action, navigate)}
                   >
                     <i className={s.icon} style={{ color: s.iconColor, width: '20px', textAlign: 'center' }} aria-hidden="true"></i>
                     <span style={{ fontSize: 'var(--text-base)' }}>{s.label}</span>
@@ -508,6 +509,8 @@ const suggestions = [
 ];
 
 const shortcuts = [
+  { label: '对话式建书', icon: 'fa-solid fa-comments', iconColor: '#60a5fa', action: 'chat-builder' },
+  { label: '文风仿写', icon: 'fa-solid fa-palette', iconColor: '#f59e0b', action: 'style-imitation' },
   { label: '批量写下一章', icon: 'fa-solid fa-layer-group', iconColor: 'var(--accent)' },
   { label: '全文审计', icon: 'fa-solid fa-shield-check', iconColor: '#60a5fa' },
   { label: '导出作品', icon: 'fa-solid fa-file-export', iconColor: '#a78bfa' },
@@ -518,6 +521,20 @@ const activities = [
   { text: '《星际纪元》第38章 生成完成', time: '昨天 15:30', dotColor: '#60a5fa' },
   { text: '模型配置更新：写手 → Claude 3.5', time: '2天前', dotColor: 'var(--accent)' },
 ];
+
+function handleShortcutClick(action: string | undefined, navigate: (path: string) => void) {
+  switch(action) {
+    case 'chat-builder':
+      navigate('/chat-builder');
+      break;
+    case 'style-imitation':
+      navigate('/style-imitation');
+      break;
+    default:
+      // Do nothing for other actions
+      break;
+  }
+}
 
 function getStatusBadgeClass(status: string): string {
   switch (status) {

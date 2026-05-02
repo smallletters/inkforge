@@ -15,6 +15,7 @@ import chatRoute from './routes/chat';
 import importRoute from './routes/import';
 import subscriptionRoute from './routes/subscription';
 import agentsApiRoute from './routes/agents-api';
+import styleRoute from './routes/style';
 import { eventBus } from './sse/event-bus';
 import { executePipeline } from './pipeline/orchestrator';
 
@@ -78,10 +79,11 @@ app.route('/api/v1/providers', providersRoute);
 app.route('/api/v1', pipelineRoute);
 app.route('/api/v1', truthRoute);
 app.route('/api/v1', exportRoute);
-app.route('/api/v1/novels', chatRoute);
-app.route('/api/v1/novels', importRoute);
+app.route('/api/v1', chatRoute);
+app.route('/api/v1', importRoute);
 app.route('/api/v1/subscription', subscriptionRoute);
 app.route('/api/v1/agents-api', agentsApiRoute);
+app.route('/api/v1/style', styleRoute);
 
 // Error middleware - apply to API routes only
 app.use('/api/*', errorMiddleware);

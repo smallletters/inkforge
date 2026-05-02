@@ -260,7 +260,7 @@ function generateDocx(title: string, chapters: any[]): string {
       <w:pPr><w:pStyle w:val="Heading1"/></w:pPr>
       <w:r><w:t>第${ch.chapter_number}章 ${escapeHtml(ch.title || '')}</w:t></w:r>
     </w:p>
-    ${(ch.content || '').split('\n\n').map(para => `
+    ${(ch.content || '').split('\n\n').map((para: string) => `
     <w:p>
       <w:r><w:t xml:space="preserve">${escapeHtml(para)}</w:t></w:r>
     </w:p>`).join('')}
@@ -294,7 +294,7 @@ function generatePdf(title: string, chapters: any[]): string {
   ${chapters.map(ch => `
   <div class="chapter">
     <h2>第${ch.chapter_number}章 ${escapeHtml(ch.title || '')}</h2>
-    ${(ch.content || '').split('\n\n').map(para => `<p>${escapeHtml(para)}</p>`).join('\n')}
+    ${(ch.content || '').split('\n\n').map((para: string) => `<p>${escapeHtml(para)}</p>`).join('\n')}
   </div>`).join('')}
 </body>
 </html>`;

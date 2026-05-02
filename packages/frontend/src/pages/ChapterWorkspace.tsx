@@ -10,8 +10,10 @@ import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
+import { useSubscription } from '../hooks/useSubscription';
 
 const AGENT_DISPLAY_NAMES: Record<string, string> = {
+  radar: '策划Radar',
   planner: '大纲师',
   composer: '编剧',
   architect: '架构师',
@@ -23,11 +25,25 @@ const AGENT_DISPLAY_NAMES: Record<string, string> = {
   reviser: '修订者',
 };
 
+const PIPELINE_AGENTS_DEFAULT = [
+  { name: 'radar', status: 'pending' },
+  { name: 'planner', status: 'pending' },
+  { name: 'composer', status: 'pending' },
+  { name: 'architect', status: 'pending' },
+  { name: 'writer', status: 'pending' },
+  { name: 'observer', status: 'pending' },
+  { name: 'reflector', status: 'pending' },
+  { name: 'normalizer', status: 'pending' },
+  { name: 'auditor', status: 'pending' },
+  { name: 'reviser', status: 'pending' },
+];
+
 export default function ChapterWorkspace() {
   const { id, chapterNumber } = useParams<{ id: string; chapterNumber: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
+  const { isPro, features } = useSubscription();
   const { pipelineStatus, isConnected, resetPipeline } = useSSE(id);
 
   const { data: chapter, isLoading, error } = useQuery({
@@ -95,6 +111,11 @@ export default function ChapterWorkspace() {
               生成中
             </span>
           )}
+          {isPro && (
+            <span className="badge badge-green" style={{ fontSize: '10px' }}>
+              <i className="fa-solid fa-crown mr-1" aria-hidden="true"></i>专业版
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <button className="btn-ghost" style={{ padding: '6px 14px', fontSize: '12px' }}>
@@ -105,13 +126,24 @@ export default function ChapterWorkspace() {
               <i className="fa-solid fa-spinner animate-spin" aria-hidden="true"></i>生成中...
             </button>
           ) : (
-            <button 
-              className="btn-accent" 
-              style={{ padding: '6px 16px', fontSize: '12px' }}
-              onClick={() => writeNextMutation.mutate()}
-            >
-              <i className="fa-solid fa-plus" aria-hidden="true"></i>写下一章
-            </button>
+            features.advanced_pipeline ? (
+              <button 
+                className="btn-accent" 
+                style={{ padding: '6px 16px', fontSize: '12px' }}
+                onClick={() => writeNextMutation.mutate()}
+              >
+                <i className="fa-solid fa-plus" aria-hidden="true"></i>写下一章
+              </button>
+            ) : (
+              <button 
+                disabled 
+                className="btn-accent" 
+                style={{ padding: '6px 16px', fontSize: '12px', opacity: 0.5, cursor: 'not-allowed' }}
+                title="专业版功能"
+              >
+                <i className="fa-solid fa-lock mr-1" aria-hidden="true"></i>写下一章
+              </button>
+            )
           )}
         </div>
       </header>
@@ -195,18 +227,29 @@ export default function ChapterWorkspace() {
                   >
                     返回作品
                   </button>
-                  <button 
-                    onClick={() => writeNextMutation.mutate()}
-                    disabled={writeNextMutation.isPending}
-                    className="btn-accent" 
-                    style={{ padding: '8px 16px', fontSize: '12px' }}
-                  >
-                    {writeNextMutation.isPending ? (
-                      <><i className="fa-solid fa-spinner animate-spin mr-2" aria-hidden="true"></i>生成中...</>
-                    ) : (
-                      <><i className="fa-solid fa-plus mr-2" aria-hidden="true"></i>生成第一章</>
-                    )}
-                  </button>
+                  {features.advanced_pipeline ? (
+                    <button 
+                      onClick={() => writeNextMutation.mutate()}
+                      disabled={writeNextMutation.isPending}
+                      className="btn-accent" 
+                      style={{ padding: '8px 16px', fontSize: '12px' }}
+                    >
+                      {writeNextMutation.isPending ? (
+                        <><i className="fa-solid fa-spinner animate-spin mr-2" aria-hidden="true"></i>生成中...</>
+                      ) : (
+                        <><i className="fa-solid fa-plus mr-2" aria-hidden="true"></i>生成第一章</>
+                      )}
+                    </button>
+                  ) : (
+                    <button 
+                      disabled
+                      className="btn-accent" 
+                      style={{ padding: '8px 16px', fontSize: '12px', opacity: 0.5, cursor: 'not-allowed' }}
+                      title="专业版功能"
+                    >
+                      <i className="fa-solid fa-lock mr-1" aria-hidden="true"></i>生成第一章
+                    </button>
+                  )}
                 </div>
               </div>
             ) : chapter?.content ? (
@@ -257,30 +300,30 @@ export default function ChapterWorkspace() {
               </div>
             )}
 
-            {/* Agent执行列表 */}
+            {/* Agent执行列表 - 始终显示 */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-              {pipelineStatus?.agents.map((agent, index) => (
-                <div 
-                  key={agent.name} 
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    gap: '8px', 
-                    padding: '4px 8px', 
-                    borderRadius: '6px', 
+              {(pipelineStatus?.agents || PIPELINE_AGENTS_DEFAULT).map((agent: any) => (
+                <div
+                  key={typeof agent === 'string' ? agent : agent.name}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
                     fontSize: '12px',
-                    background: agent.status === 'running' ? 'rgba(96,165,250,0.1)' : 'transparent'
+                    background: agent?.status === 'running' ? 'rgba(96,165,250,0.1)' : 'transparent'
                   }}
                 >
-                  {agent.status === 'completed' && <i className="fa-solid fa-check-circle" style={{ color: '#34d399', fontSize: '10px' }} aria-hidden="true" />}
-                  {agent.status === 'running' && <i className="fa-solid fa-spinner animate-spin" style={{ color: '#60a5fa', fontSize: '10px' }} aria-hidden="true" />}
-                  {agent.status === 'failed' && <i className="fa-solid fa-circle-xmark" style={{ color: '#f87171', fontSize: '10px' }} aria-hidden="true" />}
-                  {agent.status === 'pending' && <i className="fa-solid fa-circle" style={{ color: 'var(--text-tertiary)', fontSize: '5px' }} aria-hidden="true" />}
-                  <span style={{ color: agent.status === 'running' ? '#60a5fa' : 'var(--text-secondary)' }}>
-                    {AGENT_DISPLAY_NAMES[agent.name] || agent.name}
+                  {agent?.status === 'completed' && <i className="fa-solid fa-check-circle" style={{ color: '#34d399', fontSize: '10px' }} aria-hidden="true" />}
+                  {agent?.status === 'running' && <i className="fa-solid fa-spinner animate-spin" style={{ color: '#60a5fa', fontSize: '10px' }} aria-hidden="true" />}
+                  {agent?.status === 'failed' && <i className="fa-solid fa-circle-xmark" style={{ color: '#f87171', fontSize: '10px' }} aria-hidden="true" />}
+                  {(agent?.status === 'pending' || !agent?.status) && <i className="fa-solid fa-circle" style={{ color: 'var(--text-tertiary)', fontSize: '5px' }} aria-hidden="true" />}
+                  <span style={{ color: agent?.status === 'running' ? '#60a5fa' : 'var(--text-secondary)' }}>
+                    {AGENT_DISPLAY_NAMES[typeof agent === 'string' ? agent : agent?.name] || (typeof agent === 'string' ? agent : agent?.name)}
                   </span>
                   <span style={{ marginLeft: 'auto', color: 'var(--text-tertiary)', fontSize: '10px' }}>
-                    {formatDuration(agent.duration)}
+                    {formatDuration(agent?.duration)}
                   </span>
                 </div>
               ))}
@@ -299,15 +342,17 @@ export default function ChapterWorkspace() {
           <div style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
               <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-tertiary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>审计报告</span>
-              {chapter?.audit_report && (
+              {chapter?.audit_report && Object.keys(chapter.audit_report).length > 0 ? (
                 <span className="badge badge-accent" style={{ fontSize: '9px' }}>
                   {((chapter.audit_report as any)?.issues?.length || 0) > 0
                     ? `${((chapter.audit_report as any)?.issues?.filter((i: any) => i.severity === 'minor' || i.severity === 'suggestion').length || 0)}个次要`
                     : '全部通过'}
                 </span>
+              ) : (
+                <span className="badge badge-green" style={{ fontSize: '9px' }}>暂无数据</span>
               )}
             </div>
-            {chapter?.audit_report ? (
+            {chapter?.audit_report && Object.keys(chapter.audit_report).length > 0 ? (
               <>
                 {((chapter.audit_report as any)?.checks || []).map((check: any, idx: number) => (
                   <div key={idx} className="dim-row">
@@ -357,8 +402,19 @@ export default function ChapterWorkspace() {
               </div>
             )}
             <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-              <button className="btn-accent" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>自动修订</button>
-              <button className="btn-ghost" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>忽略</button>
+              {features.advanced_pipeline ? (
+                <>
+                  <button className="btn-accent" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>自动修订</button>
+                  <button className="btn-ghost" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>忽略</button>
+                </>
+              ) : (
+                <>
+                  <button disabled className="btn-accent" style={{ flex: 1, padding: '8px', fontSize: '12px', opacity: 0.5, cursor: 'not-allowed' }} title="专业版功能">
+                    <i className="fa-solid fa-lock mr-1" aria-hidden="true"></i>自动修订
+                  </button>
+                  <button className="btn-ghost" style={{ flex: 1, padding: '8px', fontSize: '12px' }}>忽略</button>
+                </>
+              )}
             </div>
           </div>
         </aside>

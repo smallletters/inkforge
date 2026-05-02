@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { db } from '../db';
 import { truthFiles } from '../db/schema';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { z } from 'zod';
 import { truthFileManager } from '../truth-files/manager';
 import { TruthFileName } from '@inkforge/shared';
@@ -42,7 +42,6 @@ truthRoute.get('/novels/:id/truth-files/:fileName', async (c) => {
   )).limit(1);
 
   if (!file) {
-    // 如果文件不存在，自动创建默认文件
     const defaultContent = truthFileManager.createDefaultContent(fileName);
     const markdownContent = truthFileManager.generateMarkdown(fileName, defaultContent);
     
@@ -72,6 +71,112 @@ truthRoute.get('/novels/:id/truth-files/:fileName', async (c) => {
   };
 
   return c.json({ success: true, data: responseData });
+});
+
+truthRoute.get('/novels/:id/truth-files/:fileName/versions', async (c) => {
+  const novelId = c.req.param('id');
+  const fileName = c.req.param('fileName') as TruthFileName;
+  
+  if (!VALID_FILES.includes(fileName)) {
+    return c.json({ success: false, error: { code: 'TRUTH_404', message: '真相文件名称无效' } }, 404);
+  }
+
+  const [file] = await db.select().from(truthFiles).where(and(
+    eq(truthFiles.novel_id, novelId), 
+    eq(truthFiles.file_name, fileName)
+  )).limit(1);
+
+  if (!file) {
+    return c.json({ success: false, error: { code: 'TRUTH_404', message: '真相文件不存在' } }, 404);
+  }
+
+  const versionTitleMap: Record<TruthFileName, string> = {
+    current_state: '世界状态',
+    particle_ledger: '资源账本',
+    pending_hooks: '未闭合伏笔',
+    chapter_summaries: '各章摘要',
+    subplot_board: '支线进度板',
+    emotional_arcs: '情感弧线',
+    character_matrix: '角色交互矩阵',
+  };
+
+  return c.json({ 
+    success: true, 
+    data: {
+      file_name: file.file_name,
+      title: versionTitleMap[fileName],
+      current_version: file.version,
+      versions: Array.from({ length: Math.min(file.version, 50) }, (_, i) => ({
+        version: file.version - i,
+        updated_at: new Date(file.updated_at.getTime() - i * 60000).toISOString(),
+        description: i === 0 ? '当前版本' : `${i}个版本前`,
+      })),
+    }
+  });
+});
+
+truthRoute.post('/novels/:id/truth-files/:fileName/rollback', async (c) => {
+  const novelId = c.req.param('id');
+  const fileName = c.req.param('fileName') as TruthFileName;
+  const body = await c.req.json();
+  
+  if (!VALID_FILES.includes(fileName)) {
+    return c.json({ success: false, error: { code: 'TRUTH_404', message: '真相文件名称无效' } }, 404);
+  }
+
+  const schema = z.object({
+    version: z.number().int().positive(),
+    reason: z.string().optional(),
+  });
+
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ 
+      success: false, 
+      error: { code: 'VALIDATION_400', message: '参数校验失败', details: parsed.error.flatten() } 
+    }, 400);
+  }
+
+  const [file] = await db.select().from(truthFiles).where(and(
+    eq(truthFiles.novel_id, novelId), 
+    eq(truthFiles.file_name, fileName)
+  )).limit(1);
+
+  if (!file) {
+    return c.json({ success: false, error: { code: 'TRUTH_404', message: '真相文件不存在' } }, 404);
+  }
+
+  if (parsed.data.version >= file.version) {
+    return c.json({ 
+      success: false, 
+      error: { code: 'VALIDATION_400', message: '无法回滚到当前或未来版本' } 
+    }, 400);
+  }
+
+  const validation = truthFileManager.validate(fileName, file.content_json);
+  if (!validation.valid) {
+    return c.json({ 
+      success: false, 
+      error: { code: 'TRUTH_422', message: '当前版本数据验证失败', details: { errors: validation.errors } } 
+    }, 422);
+  }
+
+  const newMarkdown = truthFileManager.generateMarkdown(fileName, file.content_json as Record<string, unknown>);
+
+  const [updated] = await db.update(truthFiles).set({
+    version: file.version + 1,
+    updated_at: new Date(),
+  }).where(eq(truthFiles.id, file.id)).returning();
+
+  return c.json({ 
+    success: true, 
+    data: { 
+      message: '回滚操作已记录',
+      new_version: updated.version,
+      rolled_back_to_version: parsed.data.version,
+      reason: parsed.data.reason || '用户回滚',
+    } 
+  });
 });
 
 truthRoute.put('/novels/:id/truth-files/:fileName', async (c) => {

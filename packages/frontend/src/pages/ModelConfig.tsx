@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Header from '../components/Header';
 import StyledSelect from '../components/StyledSelect';
 import { api } from '../lib/api';
+import { useSubscription } from '../hooks/useSubscription';
 
 const providerLogos: Record<string, string> = {
   openai: `<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="#10b981"/><path d="M12 6C8.686 6 6 8.686 6 12s2.686 6 6 6 6-2.686 6-6-2.686-6-6-6zm0 10c-2.21 0-4-1.79-4-4s1.79-4 4-4 4 1.79 4 4-1.79 4-4 4z" fill="white"/></svg>`,
@@ -49,10 +50,14 @@ export default function ModelConfig() {
   const [showCustomModelInput, setShowCustomModelInput] = useState(false);
   const [showDeleteButtons, setShowDeleteButtons] = useState(false);
 
+  const { features } = useSubscription();
+
   const { data: providers, isLoading } = useQuery({
     queryKey: ['providers'],
     queryFn: api.providers.list,
   });
+
+  const canAddProviders = features.multi_model_routing;
 
   const addProviderMutation = useMutation({
     mutationFn: (data: any) => api.providers.create(data),
@@ -143,13 +148,24 @@ export default function ModelConfig() {
               <i className="fa-solid fa-gear" aria-hidden="true"></i>
               {showDeleteButtons ? '完成管理' : '管理模型'}
             </button>
-            <button
-              onClick={() => { setEditingProvider({ name: '', provider_type: 'openai', base_url: 'https://api.openai.com/v1', api_key: '', models: [], is_active: true }); setShowAddModal(true); }}
-              className="btn-accent"
-              aria-label="添加提供商"
-            >
-              <i className="fa-solid fa-plus mr-2" aria-hidden="true"></i>添加提供商
-            </button>
+            {canAddProviders ? (
+              <button
+                onClick={() => { setEditingProvider({ name: '', provider_type: 'openai', base_url: 'https://api.openai.com/v1', api_key: '', models: [], is_active: true }); setShowAddModal(true); }}
+                className="btn-accent"
+                aria-label="添加提供商"
+              >
+                <i className="fa-solid fa-plus mr-2" aria-hidden="true"></i>添加提供商
+              </button>
+            ) : (
+              <button
+                disabled
+                className="btn-accent opacity-50 cursor-not-allowed"
+                aria-label="添加提供商（专业版功能）"
+                title="多模型路由是专业版功能"
+              >
+                <i className="fa-solid fa-lock mr-2" aria-hidden="true"></i>添加提供商
+              </button>
+            )}
           </div>
         </div>
 

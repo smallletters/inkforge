@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Header from '../components/Header';
 import { api } from '../lib/api';
+import { useSubscription } from '../hooks/useSubscription';
 
 const MAIN_AGENTS = [
   { name: 'writer', label: '写手', desc: '负责章节正文生成', icon: 'fa-pen', color: '#a78bfa', bg: 'rgba(139,92,246,0.15)', model: 'Claude 3.5 Sonnet', temp: 0.8 },
@@ -57,6 +58,8 @@ export default function AgentConfig() {
 - 正文内容
 - 本章涉及的角色、位置、关键物品列表`);
 
+  const { isPro, features, isLoading: subLoading } = useSubscription();
+
   const { data: agentConfigs } = useQuery({
     queryKey: ['agent-configs'],
     queryFn: api.agents.configs,
@@ -68,6 +71,8 @@ export default function AgentConfig() {
       queryClient.invalidateQueries({ queryKey: ['agent-configs'] });
     },
   });
+
+  const canCustomizePrompt = features.custom_prompt;
 
   const handleSaveAgentConfig = (agentName: string) => {
     const model = AGENT_MODEL_MAP[selectedModel] || selectedModel;
@@ -273,25 +278,41 @@ export default function AgentConfig() {
                 </div>
 
                 <div className="animate-fade-in-up delay-2">
-                  <label className="text-[11px] font-semibold uppercase tracking-wider block mb-2.5" style={{ color: 'var(--text-tertiary)' }}>
-                    System Prompt <span className="font-normal normal-case ml-1.5" style={{ color: 'var(--text-tertiary)' }}>v3 · 上次编辑 2天前</span>
-                  </label>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <label className="text-[11px] font-semibold uppercase tracking-wider block" style={{ color: 'var(--text-tertiary)' }}>
+                      System Prompt <span className="font-normal normal-case ml-1.5" style={{ color: 'var(--text-tertiary)' }}>v3 · 上次编辑 2天前</span>
+                    </label>
+                    {!canCustomizePrompt && (
+                      <span className="text-[10px] px-2 py-1 rounded-full" style={{ background: 'rgba(245,158,11,0.15)', color: '#fbbf24' }}>
+                        <i className="fa-solid fa-lock mr-1" aria-hidden="true"></i>专业版功能
+                      </span>
+                    )}
+                  </div>
                   <textarea
                     className="prompt-editor w-full rounded-lg"
                     value={systemPrompt}
-                    onChange={(e) => setSystemPrompt(e.target.value)}
+                    onChange={(e) => canCustomizePrompt && setSystemPrompt(e.target.value)}
+                    disabled={!canCustomizePrompt}
                     rows={8}
                     aria-label="自定义System Prompt"
-                    style={{ fontSize: '13px' }}
+                    style={{ 
+                      fontSize: '13px',
+                      opacity: canCustomizePrompt ? 1 : 0.5,
+                      cursor: canCustomizePrompt ? 'text' : 'not-allowed'
+                    }}
                   ></textarea>
                   <div className="flex justify-between mt-2.5">
                     <div className="flex gap-3">
-                      <button className="text-[11px] flex items-center gap-1.5 transition-colors duration-200 hover:text-primary" style={{ color: 'var(--text-tertiary)' }}>
-                        <i className="fa-regular fa-clock-rotate-left" aria-hidden="true"></i>版本历史
-                      </button>
-                      <button className="text-[11px] flex items-center gap-1.5 transition-colors duration-200 hover:text-primary" style={{ color: 'var(--text-tertiary)' }}>
-                        <i className="fa-regular fa-circle-question" aria-hidden="true"></i>变量说明
-                      </button>
+                      {canCustomizePrompt && (
+                        <>
+                          <button className="text-[11px] flex items-center gap-1.5 transition-colors duration-200 hover:text-primary" style={{ color: 'var(--text-tertiary)' }}>
+                            <i className="fa-regular fa-clock-rotate-left" aria-hidden="true"></i>版本历史
+                          </button>
+                          <button className="text-[11px] flex items-center gap-1.5 transition-colors duration-200 hover:text-primary" style={{ color: 'var(--text-tertiary)' }}>
+                            <i className="fa-regular fa-circle-question" aria-hidden="true"></i>变量说明
+                          </button>
+                        </>
+                      )}
                     </div>
                     <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>~680 tokens</span>
                   </div>

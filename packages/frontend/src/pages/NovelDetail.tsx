@@ -12,6 +12,7 @@ import Header from '../components/Header';
 import StyledSelect from '../components/StyledSelect';
 import { api } from '../lib/api';
 import { HookTracker, CharacterRelation } from './Visualizations';
+import { useSubscription } from '../hooks/useSubscription';
 
 const genres: Record<string, { label: string; color: string }> = {
   xuanhuan: { label: '玄幻', color: '#f59e0b' },
@@ -54,6 +55,8 @@ export default function NovelDetail() {
     message: '',
     onConfirm: () => {},
   });
+
+  const { features, isPro } = useSubscription();
 
   const showConfirm = useCallback((title: string, message: string, onConfirm: () => void) => {
     setConfirmDialog({ isOpen: true, title, message, onConfirm });
@@ -387,24 +390,36 @@ export default function NovelDetail() {
               </div>
 
               <div className="flex items-center gap-3">
-                <button
-                  onClick={handleWriteNext}
-                  disabled={writingNext}
-                  className="btn-accent flex items-center gap-2"
-                  aria-label="写新章节"
-                >
-                  {writingNext ? (
-                    <>
-                      <i className="fa-solid fa-spinner animate-spin" aria-hidden="true"></i>
-                      生成中...
-                    </>
-                  ) : (
-                    <>
-                      <i className="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
-                      续写新章
-                    </>
-                  )}
-                </button>
+                {features.advanced_pipeline ? (
+                  <button
+                    onClick={handleWriteNext}
+                    disabled={writingNext}
+                    className="btn-accent flex items-center gap-2"
+                    aria-label="写新章节"
+                  >
+                    {writingNext ? (
+                      <>
+                        <i className="fa-solid fa-spinner animate-spin" aria-hidden="true"></i>
+                        生成中...
+                      </>
+                    ) : (
+                      <>
+                        <i className="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i>
+                        续写新章
+                      </>
+                    )}
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    className="btn-accent flex items-center gap-2 opacity-50"
+                    aria-label="专业版功能"
+                    title="专业版功能"
+                  >
+                    <i className="fa-solid fa-lock" aria-hidden="true"></i>
+                    续写新章
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     if (novel.total_chapters > 0) {
@@ -850,16 +865,23 @@ function TruthFilesPanel({ novelId }: { novelId: string }) {
   );
 }
 
-const EXPORT_FORMATS = [
-  { id: 'txt', name: '纯文本', icon: 'fa-file-lines', desc: '适合复制粘贴到其他平台', color: '#60a5fa' },
-  { id: 'md', name: 'Markdown', icon: 'fa-file-code', desc: '保留格式，便于二次编辑', color: '#34d399' },
-  { id: 'epub', name: 'EPUB', icon: 'fa-tablet-screen-button', desc: '电子书格式，适合阅读器', color: '#f472b6', disabled: true },
-  { id: 'pdf', name: 'PDF', icon: 'fa-file-pdf', desc: '适合打印和分享', color: '#ef4444', disabled: true },
+const BASE_EXPORT_FORMATS = [
+  { id: 'txt', name: '纯文本', icon: 'fa-file-lines', desc: '适合复制粘贴到其他平台', color: '#60a5fa', proOnly: false },
+  { id: 'md', name: 'Markdown', icon: 'fa-file-code', desc: '保留格式，便于二次编辑', color: '#34d399', proOnly: false },
+  { id: 'epub', name: 'EPUB', icon: 'fa-tablet-screen-button', desc: '电子书格式，适合阅读器', color: '#f472b6', proOnly: true },
+  { id: 'pdf', name: 'PDF', icon: 'fa-file-pdf', desc: '适合打印和分享', color: '#ef4444', proOnly: true },
 ];
 
 function ExportDialog({ novelId, title, onClose }: { novelId: string; title: string; onClose: () => void }) {
   const [format, setFormat] = useState('txt');
   const [isExporting, setIsExporting] = useState(false);
+  
+  const { features, isPro } = useSubscription();
+  
+  const exportFormats = BASE_EXPORT_FORMATS.map(f => ({
+    ...f,
+    disabled: f.proOnly && !isPro,
+  }));
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -907,7 +929,7 @@ function ExportDialog({ novelId, title, onClose }: { novelId: string; title: str
         <div style={{ marginBottom: '20px' }}>
           <p style={{ fontSize: '13px', color: 'var(--text-tertiary)', marginBottom: '16px' }}>选择导出格式</p>
           <div className="grid grid-cols-2 gap-3">
-            {EXPORT_FORMATS.map((f) => (
+            {exportFormats.map((f) => (
               <div
                 key={f.id}
                 onClick={() => !f.disabled && setFormat(f.id)}

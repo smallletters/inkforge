@@ -4,12 +4,14 @@
  * 创建日期：2026-04-30
  *
  * 功能描述：通过多轮对话帮助用户创建作品，降低新用户创作门槛
+ * 支持SSE流式输出，提供更流畅的对话体验
  */
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { providerBank } from '../provider-bank';
 import { truthFileManager } from '../truth-files/manager';
+import { eventBus } from '../sse/event-bus';
 import { db } from '../db';
 import { novels, llmProviders } from '../db/schema';
 import { decrypt } from '../lib/crypto';
@@ -207,6 +209,115 @@ chatRoute.post('/chat/create', async (c) => {
   }
 
   return c.json({ success: true, data: novel }, 201);
+});
+
+chatRoute.post('/chat/stream', async (c) => {
+  const userId = c.get('user_id');
+  const body = await c.req.json();
+
+  const schema = z.object({
+    messages: z.array(z.object({
+      role: z.enum(['user', 'assistant']),
+      content: z.string(),
+    })),
+    extracted_info: z.object({
+      genre: z.string().optional(),
+      title: z.string().optional(),
+      outline: z.string().optional(),
+      characters: z.string().optional(),
+      world_setting: z.string().optional(),
+    }).optional(),
+  });
+
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({
+      success: false,
+      error: { code: 'VALIDATION_400', message: '参数校验失败', details: parsed.error.flatten() }
+    }, 400);
+  }
+
+  const { messages, extracted_info } = parsed.data;
+  const info = extracted_info || {};
+  const conversationHistory = messages.map(m => `${m.role === 'user' ? '用户' : '助手'}: ${m.content}`).join('\n');
+
+  const prompt = `对话历史：
+${conversationHistory}
+
+当前信息：
+- 题材: ${info.genre || '未选择'}
+- 标题: ${info.title || '未确定'}
+- 大纲: ${info.outline || '未提供'}
+- 角色: ${info.characters || '未提供'}
+- 世界观: ${info.world_setting || '未提供'}
+
+${genreSelectionPrompt}
+
+请根据对话历史和当前状态，作为建书助手回复用户。`;
+
+  c.header('Content-Type', 'text/event-stream');
+  c.header('Cache-Control', 'no-cache');
+  c.header('Connection', 'keep-alive');
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        const adapterKey = `${userId}-chat-stream`;
+        const [userProvider] = await db.select().from(llmProviders).where(eq(llmProviders.user_id, userId)).limit(1);
+        if (userProvider) {
+          const apiKey = decrypt(userProvider.api_key_encrypted);
+          providerBank.register(adapterKey, userProvider.provider_type, apiKey, userProvider.base_url);
+        } else {
+          providerBank.register(adapterKey, 'openai', 'demo-key', 'https://api.openai.com/v1');
+        }
+
+        const response = await providerBank.chat(adapterKey, [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }], { model: 'gpt-4o-mini' });
+
+        let replyContent = '';
+        if (typeof response === 'object' && 'content' in response) {
+          replyContent = (response as { content: string }).content || '';
+        } else if (typeof response === 'string') {
+          replyContent = response;
+        }
+
+        const parsedResponse = {
+          reply: replyContent,
+          current_step: 'genre',
+          extracted_info: info,
+          suggestions: [] as string[],
+          is_complete: false,
+          ready_to_create: false,
+        };
+
+        try {
+          const jsonMatch = replyContent.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const jsonStr = jsonMatch[0].replace(/```json\n?|```\n?/g, '').trim();
+            const parsed = JSON.parse(jsonStr);
+            Object.assign(parsedResponse, parsed);
+          }
+        } catch {
+          // Keep default response if JSON parsing fails
+        }
+
+        controller.enqueue(`data: ${JSON.stringify(parsedResponse)}\n\n`);
+
+        (eventBus as unknown as { publish(userId: string, event: { event: string; data: unknown }): void }).publish(userId, {
+          event: 'chat.update',
+          data: { ...parsedResponse }
+        });
+
+        controller.enqueue(`event: done\ndata: ${JSON.stringify({ done: true })}\n\n`);
+      } catch (error) {
+        console.error('Chat stream error:', error);
+        controller.enqueue(`event: error\ndata: ${JSON.stringify({ error: '对话生成失败' })}\n\n`);
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return c.body(stream);
 });
 
 export default chatRoute;

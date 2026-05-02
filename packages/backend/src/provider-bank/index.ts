@@ -19,30 +19,35 @@ interface RetryConfig {
   initialDelayMs: number;
   maxDelayMs: number;
   backoffMultiplier: number;
+  retryableStatuses: number[];
 }
 
 interface CircuitBreakerState {
   failures: number;
   lastFailure: number;
   state: 'closed' | 'open' | 'half_open';
+  consecutiveSuccesses: number;
 }
 
 const DEFAULT_RETRY_CONFIG: RetryConfig = {
-  maxRetries: 2,
+  maxRetries: 3,
   initialDelayMs: 1000,
-  maxDelayMs: 10000,
-  backoffMultiplier: 2,
+  maxDelayMs: 16000,
+  backoffMultiplier: 4,
+  retryableStatuses: [429, 503],
 };
 
 const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_TIMEOUT = 30000;
+const CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD = 2;
 
 export class ProviderBank {
   private adapters = new Map<string, ProviderAdapter>();
   private retryConfigs = new Map<string, RetryConfig>();
   private circuitBreakers = new Map<string, CircuitBreakerState>();
+  private metrics = new Map<string, { totalRequests: number; failedRequests: number; totalLatency: number }>();
 
-  register(name: string, providerType: string, apiKey: string, baseUrlOverride?: string, retryConfig?: RetryConfig) {
+  register(name: string, providerType: string, apiKey: string, baseUrlOverride?: string, retryConfig?: Partial<RetryConfig>) {
     const info = PROVIDER_MAP[providerType];
     if (!info && providerType !== 'custom') throw new Error(`未知的服务商类型: ${providerType}。支持: ${Object.keys(PROVIDER_MAP).join(', ')}`);
 
@@ -52,10 +57,11 @@ export class ProviderBank {
     this.adapters.set(name, adapter);
     
     if (retryConfig) {
-      this.retryConfigs.set(name, retryConfig);
+      this.retryConfigs.set(name, { ...DEFAULT_RETRY_CONFIG, ...retryConfig });
     }
     
-    this.circuitBreakers.set(name, { failures: 0, lastFailure: 0, state: 'closed' });
+    this.circuitBreakers.set(name, { failures: 0, lastFailure: 0, state: 'closed', consecutiveSuccesses: 0 });
+    this.metrics.set(name, { totalRequests: 0, failedRequests: 0, totalLatency: 0 });
   }
 
   getAdapter(name: string): ProviderAdapter {
@@ -71,7 +77,7 @@ export class ProviderBank {
   private getCircuitBreaker(serviceName: string): CircuitBreakerState {
     let cb = this.circuitBreakers.get(serviceName);
     if (!cb) {
-      cb = { failures: 0, lastFailure: 0, state: 'closed' };
+      cb = { failures: 0, lastFailure: 0, state: 'closed', consecutiveSuccesses: 0 };
       this.circuitBreakers.set(serviceName, cb);
     }
     
@@ -86,41 +92,80 @@ export class ProviderBank {
     const cb = this.getCircuitBreaker(serviceName);
     cb.failures++;
     cb.lastFailure = Date.now();
+    cb.consecutiveSuccesses = 0;
     
     if (cb.failures >= CIRCUIT_BREAKER_THRESHOLD) {
       cb.state = 'open';
     }
+
+    const metrics = this.metrics.get(serviceName);
+    if (metrics) metrics.failedRequests++;
   }
 
   private recordSuccess(serviceName: string): void {
     const cb = this.getCircuitBreaker(serviceName);
+    cb.consecutiveSuccesses++;
     cb.failures = 0;
-    cb.state = 'closed';
+    
+    if (cb.consecutiveSuccesses >= CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD) {
+      cb.state = 'closed';
+    }
+  }
+
+  private isRetryableError(status: number): boolean {
+    return [429, 503].includes(status);
+  }
+
+  private calculateBackoffDelay(retryConfig: RetryConfig, attempt: number, isRateLimit: boolean): number {
+    if (isRateLimit) {
+      return retryConfig.initialDelayMs * Math.pow(retryConfig.backoffMultiplier, attempt);
+    }
+    return Math.min(retryConfig.initialDelayMs * Math.pow(2, attempt), retryConfig.maxDelayMs);
   }
 
   async chat(serviceName: string, messages: ChatMessage[], options: ChatOptions): Promise<ChatResponse> {
     const adapter = this.getAdapter(serviceName);
     const retryConfig = this.getRetryConfig(serviceName);
     const circuitBreaker = this.getCircuitBreaker(serviceName);
+    const metrics = this.metrics.get(serviceName);
 
     if (circuitBreaker.state === 'open') {
-      throw new Error(`服务商 ${serviceName} 熔断器已打开，请在稍后重试`);
+      throw new Error(`服务商 ${serviceName} 熔断器已打开，请在 ${Math.ceil((CIRCUIT_BREAKER_TIMEOUT - (Date.now() - circuitBreaker.lastFailure)) / 1000)} 秒后重试`);
     }
 
+    if (metrics) metrics.totalRequests++;
     let lastError: Error | undefined;
     let delay = retryConfig.initialDelayMs;
 
     for (let attempt = 0; attempt <= retryConfig.maxRetries; attempt++) {
+      const startTime = Date.now();
+      
       try {
         const result = await adapter.chat(messages, options);
         this.recordSuccess(serviceName);
+        
+        if (metrics) {
+          metrics.totalLatency += Date.now() - startTime;
+        }
+        
         return result;
       } catch (error) {
-        lastError = error as Error;
+        const err = error as Error & { status?: number };
+        lastError = err;
+        const isRateLimit = err.status === 429;
+        const isServerError = err.status === 503;
+        
+        if (metrics) {
+          metrics.totalLatency += Date.now() - startTime;
+        }
         
         if (attempt < retryConfig.maxRetries) {
-          await new Promise(r => setTimeout(r, delay));
-          delay = Math.min(delay * retryConfig.backoffMultiplier, retryConfig.maxDelayMs);
+          if (isServerError) {
+            await new Promise(r => setTimeout(r, 10000));
+          } else {
+            delay = this.calculateBackoffDelay(retryConfig, attempt, isRateLimit);
+            await new Promise(r => setTimeout(r, delay));
+          }
         }
       }
     }
@@ -134,7 +179,6 @@ export class ProviderBank {
     if (!adapter) return true;
 
     const providerInfo = Object.entries(PROVIDER_MAP).find(([key]) => {
-      const adapterKey = `${serviceName}`;
       return serviceName.includes(key);
     });
 
@@ -160,9 +204,6 @@ export class ProviderBank {
     return Object.keys(PROVIDER_MAP);
   }
 
-  /**
-   * Validate model belongs to the given provider type.
-   */
   resolveModelConfig(providerType: string, model: string): { valid: boolean; message?: string } {
     if (!model || model.trim() === '') {
       return { valid: true };
@@ -189,6 +230,14 @@ export class ProviderBank {
       };
     }
     return { valid: true };
+  }
+
+  getMetrics(serviceName: string) {
+    return this.metrics.get(serviceName) ?? { totalRequests: 0, failedRequests: 0, totalLatency: 0 };
+  }
+
+  getCircuitBreakerStatus(serviceName: string) {
+    return this.getCircuitBreaker(serviceName);
   }
 }
 
