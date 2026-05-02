@@ -1,4 +1,4 @@
-import { OpenAIAdapter, AnthropicAdapter, OpenAICompatibleAdapter } from './adapters/index';
+import { OpenAIAdapter, AnthropicAdapter, OpenAICompatibleAdapter, GeminiAdapter } from './adapters/index';
 import { ProviderAdapter, ChatMessage, ChatOptions, ChatResponse } from './adapters/types';
 
 const PROVIDER_MAP: Record<string, { baseUrl: string; adapterClass: new (baseUrl: string, apiKey: string, label?: string) => ProviderAdapter }> = {
@@ -8,7 +8,8 @@ const PROVIDER_MAP: Record<string, { baseUrl: string; adapterClass: new (baseUrl
   deepseek: { baseUrl: 'https://api.deepseek.com', adapterClass: OpenAICompatibleAdapter as any },
   zhipu: { baseUrl: 'https://open.bigmodel.cn/api/paas/v4', adapterClass: OpenAICompatibleAdapter as any },
   bailian: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode', adapterClass: OpenAICompatibleAdapter as any },
-  google: { baseUrl: 'https://generativelanguage.googleapis.com', adapterClass: OpenAICompatibleAdapter as any },
+  google: { baseUrl: 'https://generativelanguage.googleapis.com', adapterClass: GeminiAdapter as any },
+  gemini: { baseUrl: 'https://generativelanguage.googleapis.com', adapterClass: GeminiAdapter as any },
   ollama: { baseUrl: 'http://localhost:11434', adapterClass: OpenAICompatibleAdapter as any },
 };
 
@@ -147,3 +148,25 @@ export class ProviderBank {
 }
 
 export const providerBank = new ProviderBank();
+
+export async function initializeProviderBank(userId: string) {
+  const { db } = await import('../db');
+  const { llmProviders } = await import('../db/schema');
+  const { eq } = await import('drizzle-orm');
+  const { decrypt } = await import('../lib/crypto');
+  
+  const userProviders = await db.select().from(llmProviders).where(eq(llmProviders.user_id, userId));
+  const activeProviders = userProviders.filter(p => p.is_active);
+  
+  for (const provider of activeProviders) {
+    const apiKey = decrypt(provider.api_key_encrypted);
+    providerBank.register(
+      `${userId}-${provider.provider_type}`, 
+      provider.provider_type, 
+      apiKey, 
+      provider.base_url
+    );
+  }
+  
+  return { providerBank, providers: activeProviders };
+}

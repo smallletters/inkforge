@@ -42,7 +42,26 @@ truthRoute.get('/novels/:id/truth-files/:fileName', async (c) => {
   )).limit(1);
 
   if (!file) {
-    return c.json({ success: false, error: { code: 'TRUTH_404', message: '真相文件不存在' } }, 404);
+    // 如果文件不存在，自动创建默认文件
+    const defaultContent = truthFileManager.createDefaultContent(fileName);
+    const markdownContent = truthFileManager.generateMarkdown(fileName, defaultContent);
+    
+    await db.insert(truthFiles).values({
+      novel_id: c.req.param('id'),
+      file_name: fileName,
+      version: 1,
+      content_json: defaultContent,
+      content_markdown: markdownContent,
+    });
+
+    const responseData = {
+      name: fileName,
+      version: 1,
+      content: format === 'markdown' ? markdownContent : defaultContent,
+      updated_at: new Date(),
+    };
+
+    return c.json({ success: true, data: responseData });
   }
 
   const responseData = {

@@ -4,7 +4,7 @@ import { llmProviders } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
 import { providerBank } from '../provider-bank';
-import { OpenAIAdapter, AnthropicAdapter, OpenAICompatibleAdapter } from '../provider-bank/adapters';
+import { OpenAIAdapter, AnthropicAdapter, OpenAICompatibleAdapter, GeminiAdapter } from '../provider-bank/adapters';
 import { encrypt, decrypt } from '../lib/crypto';
 
 type Variables = {
@@ -37,7 +37,7 @@ providersRoute.post('/', async (c) => {
 
   const schema = z.object({
     name: z.string().min(1).max(100),
-    provider_type: z.enum(['openai', 'anthropic', 'google', 'moonshot', 'deepseek', 'zhipu', 'bailian', 'ollama', 'custom']),
+    provider_type: z.enum(['openai', 'anthropic', 'google', 'gemini', 'moonshot', 'deepseek', 'zhipu', 'bailian', 'ollama', 'custom']),
     base_url: z.string(),
     api_key: z.string(),
     models: z.array(z.string()).optional(),
@@ -70,6 +70,11 @@ providersRoute.post('/', async (c) => {
         break;
       case 'openai':
         adapter = new OpenAIAdapter(parsed.data.base_url, parsed.data.api_key);
+        models = await adapter.listModels();
+        break;
+      case 'google':
+      case 'gemini':
+        adapter = new GeminiAdapter(parsed.data.base_url, parsed.data.api_key);
         models = await adapter.listModels();
         break;
       default:
@@ -138,6 +143,10 @@ providersRoute.post('/:id/test', async (c) => {
         break;
       case 'openai':
         adapter = new OpenAIAdapter(provider.base_url, apiKey);
+        break;
+      case 'google':
+      case 'gemini':
+        adapter = new GeminiAdapter(provider.base_url, apiKey);
         break;
       default:
         adapter = new OpenAICompatibleAdapter(provider.base_url, apiKey, provider.provider_type);

@@ -189,8 +189,8 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
       try {
         const resp = await fetch(`${this.baseUrl}/v1/chat/completions`, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json', 
+          headers: {
+            'Content-Type': 'application/json',
             Authorization: `Bearer ${this.apiKey}`,
           },
           body: JSON.stringify(requestBody),
@@ -203,13 +203,13 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
         }
 
         const json = await resp.json() as any;
-        return { 
-          content: json.choices[0]?.message?.content || '', 
-          token_usage: { 
-            prompt: json.usage?.prompt_tokens ?? 0, 
-            completion: json.usage?.completion_tokens ?? 0, 
-            total: json.usage?.total_tokens ?? 0 
-          } 
+        return {
+          content: json.choices[0]?.message?.content || '',
+          token_usage: {
+            prompt: json.usage?.prompt_tokens ?? 0,
+            completion: json.usage?.completion_tokens ?? 0,
+            total: json.usage?.total_tokens ?? 0
+          }
         };
       } finally {
         clearTimeout(timeoutId);
@@ -221,7 +221,7 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
 
   async listModels(): Promise<string[]> {
     try {
-      const resp = await fetch(`${this.baseUrl}/v1/models`, { 
+      const resp = await fetch(`${this.baseUrl}/v1/models`, {
         headers: { Authorization: `Bearer ${this.apiKey}` },
         signal: AbortSignal.timeout(30000),
       });
@@ -233,12 +233,100 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
     }
   }
 
-  async testConnection(): Promise<boolean> { 
-    try { 
-      await Promise.race([this.listModels(), createTimeout(30000)]); 
-      return true; 
-    } catch { 
-      return false; 
-    } 
+  async testConnection(): Promise<boolean> {
+    try {
+      await Promise.race([this.listModels(), createTimeout(30000)]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+export class GeminiAdapter implements ProviderAdapter {
+  constructor(private baseUrl: string, private apiKey: string) {}
+
+  async chat(messages: ChatMessage[], options: ChatOptions): Promise<ChatResponse> {
+    const contents = messages
+      .filter(m => m.role !== 'system')
+      .map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }],
+      }));
+
+    const systemInstruction = messages.find(m => m.role === 'system');
+
+    const requestBody: Record<string, unknown> = {
+      contents,
+      generationConfig: {
+        temperature: options.temperature ?? 0.7,
+        maxOutputTokens: options.max_tokens ?? 4096,
+      },
+    };
+
+    if (systemInstruction) {
+      requestBody.systemInstruction = { parts: [{ text: systemInstruction.content }] };
+    }
+
+    const fn = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
+
+      try {
+        const modelName = options.model.startsWith('gemini-') ? options.model : `models/${options.model}`;
+        const resp = await fetch(`${this.baseUrl}/v1beta/${modelName}:generateContent?key=${this.apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody),
+          signal: controller.signal,
+        });
+
+        if (!resp.ok) {
+          const errorBody = await resp.json().catch(() => ({ message: 'Unknown error' }));
+          throw new Error(`Gemini API error ${resp.status}: ${errorBody.error?.message || errorBody.message || 'Unknown error'}`);
+        }
+
+        const json = await resp.json() as any;
+        const textContent = json.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const usageMeta = json.usageMetadata || {};
+
+        return {
+          content: textContent,
+          token_usage: {
+            prompt: usageMeta.promptTokenCount ?? 0,
+            completion: usageMeta.candidatesTokenCount ?? 0,
+            total: usageMeta.totalTokenCount ?? 0,
+          },
+        };
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    };
+
+    return withRetry(fn, DEFAULT_MAX_RETRIES, 1000);
+  }
+
+  async listModels(): Promise<string[]> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1beta/models?key=${this.apiKey}`, {
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!resp.ok) return [];
+      const json = await resp.json() as any;
+      return json.models?.map((m: any) => m.name.replace('models/', '')) ?? [];
+    } catch {
+      return [];
+    }
+  }
+
+  async testConnection(): Promise<boolean> {
+    try {
+      const resp = await fetch(`${this.baseUrl}/v1beta/models?key=${this.apiKey}`, {
+        signal: AbortSignal.timeout(30000),
+      });
+      return resp.ok;
+    } catch {
+      return false;
+    }
   }
 }

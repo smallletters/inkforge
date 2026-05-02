@@ -12,7 +12,7 @@ import { providerBank } from '../provider-bank';
 import { truthFileManager } from '../truth-files/manager';
 import { db } from '../db';
 import { novels, llmProviders } from '../db/schema';
-import { Buffer } from 'buffer';
+import { decrypt } from '../lib/crypto';
 
 type Variables = {
   user_id: string;
@@ -113,7 +113,7 @@ ${genreSelectionPrompt}
     const adapterKey = `${userId}-chat`;
     const [userProvider] = await db.select().from(llmProviders).where(eq(llmProviders.user_id, userId)).limit(1);
     if (userProvider) {
-      const apiKey = Buffer.from(userProvider.api_key_encrypted, 'base64').toString('utf8');
+      const apiKey = decrypt(userProvider.api_key_encrypted);
       providerBank.register(adapterKey, userProvider.provider_type, apiKey, userProvider.base_url);
     } else {
       providerBank.register(adapterKey, 'openai', 'demo-key', 'https://api.openai.com/v1');

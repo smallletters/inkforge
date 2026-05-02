@@ -14,7 +14,7 @@ export default defineConfig({
       '/events': { 
         target: 'http://localhost:3001', 
         changeOrigin: true,
-        ws: true
+        ws: false
       } 
     } 
   },

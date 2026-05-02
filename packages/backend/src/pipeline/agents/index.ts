@@ -5,6 +5,14 @@ import { eq, and, desc } from 'drizzle-orm';
 import { TruthFileName } from '@inkforge/shared';
 import { StyleImitationAgent, styleImitationAgent } from './style-imitation';
 import { AIDetectionAgent, HumanizationAgent, aiDetectionAgent, humanizationAgent } from './ai-detector';
+import { PlotGeneratorAgent, plotGeneratorAgent } from './plot-generator';
+import { WorldbuildingAgent, worldbuildingAgent } from './worldbuilding';
+import { CharacterGeneratorAgent, characterGeneratorAgent } from './character-generator';
+import { DialogueGeneratorAgent, dialogueGeneratorAgent } from './dialogue-generator';
+import { DescriptionEnhancementAgent, descriptionEnhancementAgent } from './description-enhancement';
+import { PacingControlAgent, pacingControlAgent } from './pacing-control';
+import { EmotionalArcAgent, emotionalArcAgent } from './emotional-arc';
+import { CreativeMentorAgent, creativeMentorAgent } from './creative-mentor';
 
 export class RadarAgent extends BaseAgent {
   name = 'radar' as const;
@@ -508,3 +516,15 @@ export const AGENT_MAP = {
 
 export { StyleImitationAgent, styleImitationAgent } from './style-imitation';
 export { AIDetectionAgent, HumanizationAgent, aiDetectionAgent, humanizationAgent } from './ai-detector';
+export { PlotGeneratorAgent, plotGeneratorAgent } from './plot-generator';
+export { WorldbuildingAgent, worldbuildingAgent } from './worldbuilding';
+export { CharacterGeneratorAgent, characterGeneratorAgent } from './character-generator';
+export { DialogueGeneratorAgent, dialogueGeneratorAgent } from './dialogue-generator';
+export { DescriptionEnhancementAgent, descriptionEnhancementAgent } from './description-enhancement';
+export { PacingControlAgent, pacingControlAgent } from './pacing-control';
+export { EmotionalArcAgent, emotionalArcAgent } from './emotional-arc';
+export { CreativeMentorAgent, creativeMentorAgent } from './creative-mentor';
+// 别名，保持兼容性
+export const emotionCraftAgent = emotionalArcAgent;
+export const styleAnalyzerAgent = styleImitationAgent;
+export const consistencyCheckerAgent = aiDetectionAgent;

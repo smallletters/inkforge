@@ -27,6 +27,7 @@ export default function Header({ currentPage }: HeaderProps) {
   const { user, logout, updateUsername } = useAuthStore();
   const [showMenu, setShowMenu] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showCreateNovel, setShowCreateNovel] = useState(false);
   const [editUsername, setEditUsername] = useState(user?.username || '');
 
   const handleSaveUsername = () => {
@@ -38,8 +39,17 @@ export default function Header({ currentPage }: HeaderProps) {
   };
 
   const handleCreateNovel = () => {
-    const title = prompt('输入作品标题:');
-    if (title) api.novels.create({ title, genre: 'xuanhuan' }).then(() => window.location.reload());
+    setShowCreateNovel(true);
+  };
+
+  const confirmCreateNovel = async (title: string, genre: string) => {
+    try {
+      await api.novels.create({ title: title.trim(), genre });
+      setShowCreateNovel(false);
+      window.location.reload();
+    } catch (error) {
+      console.error('创建作品失败:', error);
+    }
   };
 
   return (
@@ -161,6 +171,72 @@ export default function Header({ currentPage }: HeaderProps) {
           </div>
         </>
       )}
+
+      <CreateNovelModal
+        isOpen={showCreateNovel}
+        onClose={() => setShowCreateNovel(false)}
+        onCreated={confirmCreateNovel}
+      />
     </header>
+  );
+}
+
+function CreateNovelModal({ isOpen, onClose, onCreated }: { isOpen: boolean; onClose: () => void; onCreated: (title: string, genre: string) => void }) {
+  const [title, setTitle] = useState('');
+  const [genre, setGenre] = useState('xuanhuan');
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    await onCreated(title, genre);
+    onClose();
+    setTitle('');
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.7)' }} onClick={onClose}>
+      <div className="glass-card p-6 w-full max-w-md animate-fade-in-up" style={{ borderRadius: '16px' }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-amber-500/15 to-amber-500/5 flex items-center justify-center">
+            <i className="fa-solid fa-book-open text-amber-400" aria-hidden="true"></i>
+          </div>
+          <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>创建新作品</h3>
+        </div>
+        <form onSubmit={handleSubmit}>
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="text-xs mb-2 block" style={{ color: 'var(--text-tertiary)' }}>作品标题</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="输入作品标题"
+                className="input-field w-full"
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs mb-2 block" style={{ color: 'var(--text-tertiary)' }}>题材分类</label>
+              <select value={genre} onChange={(e) => setGenre(e.target.value)} className="input-field w-full">
+                <option value="xuanhuan">玄幻</option>
+                <option value="xianxia">仙侠</option>
+                <option value="dushi">都市</option>
+                <option value="kehuan">科幻</option>
+                <option value="yanqing">言情</option>
+                <option value="xuanyi">悬疑</option>
+                <option value="lishi">历史</option>
+                <option value="qihuan">奇幻</option>
+              </select>
+            </div>
+            <div className="flex gap-2 justify-end pt-2">
+              <button type="button" onClick={onClose} className="btn-ghost text-sm py-2 px-4">取消</button>
+              <button type="submit" disabled={!title.trim()} className="btn-accent text-sm py-2 px-4">创建</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

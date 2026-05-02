@@ -3,6 +3,8 @@ import { db } from '../db';
 import { novels, chapters, truthFiles } from '../db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { z } from 'zod';
+import { truthFileManager } from '../truth-files/manager';
+import { TruthFileName } from '@inkforge/shared';
 
 type Variables = {
   user_id: string;
@@ -27,6 +29,21 @@ novelsRoute.post('/', async (c) => {
   if (!parsed.success) return c.json({ success: false, error: { code: 'VALIDATION_400', message: '作品标题不能为空', details: parsed.error.flatten() } }, 400);
 
   const [novel] = await db.insert(novels).values({ user_id: userId, title: body.title, genre: body.genre, outline: body.outline ?? {}, characters: body.characters ?? [] }).returning();
+  
+  // 自动初始化真相文件
+  const VALID_FILES: TruthFileName[] = ['current_state', 'particle_ledger', 'pending_hooks', 'chapter_summaries', 'subplot_board', 'emotional_arcs', 'character_matrix'];
+  for (const fileName of VALID_FILES) {
+    const defaultContent = truthFileManager.createDefaultContent(fileName);
+    const markdownContent = truthFileManager.generateMarkdown(fileName, defaultContent);
+    await db.insert(truthFiles).values({
+      novel_id: novel.id,
+      file_name: fileName,
+      version: 1,
+      content_json: defaultContent,
+      content_markdown: markdownContent,
+    });
+  }
+
   return c.json({ success: true, data: novel }, 201);
 });
 

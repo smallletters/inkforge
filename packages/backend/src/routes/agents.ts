@@ -9,7 +9,7 @@ type Variables = {
   username: string;
 };
 
-const VALID_AGENTS = ['planner', 'writer', 'auditor', 'reviser', 'architect', 'composer', 'observer', 'reflector', 'normalizer', 'radar'];
+const VALID_AGENTS = ['plot-generator', 'worldbuilding', 'character-generator', 'dialogue-generator', 'emotion-craft', 'scene-designer', 'title-generator', 'description-enhancer', 'creative-mentor', 'consistency-checker', 'style-analyzer', 'planner', 'writer', 'auditor', 'reviser', 'architect', 'composer', 'observer', 'reflector', 'normalizer', 'radar'];
 
 const agentsRoute = new Hono<{ Variables: Variables }>();
 

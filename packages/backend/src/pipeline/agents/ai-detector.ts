@@ -11,7 +11,7 @@ import { eventBus } from '../../sse/event-bus';
 import { db } from '../../db';
 import { llmProviders, agentConfigs } from '../../db/schema';
 import { eq, and } from 'drizzle-orm';
-import { Buffer } from 'buffer';
+import { decrypt } from '../../lib/crypto';
 import type { AgentContext, AgentOutput } from '../base-agent';
 
 const AIDetectionSchema = z.object({
@@ -59,7 +59,7 @@ async function getAdapterForAgent(userId: string, agentName: string) {
 
   let apiKey: string;
   try {
-    apiKey = Buffer.from(provider.api_key_encrypted, 'base64').toString('utf8');
+    apiKey = decrypt(provider.api_key_encrypted);
   } catch {
     throw new Error('API Key解密失败');
   }
