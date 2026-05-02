@@ -31,6 +31,42 @@ providersRoute.get('/', async (c) => {
   return c.json({ success: true, data: providers });
 });
 
+providersRoute.get('/:id', async (c) => {
+  const userId = c.get('user_id') as string;
+  const providerId = c.req.param('id');
+
+  const [provider] = await db.select().from(llmProviders).where(
+    and(eq(llmProviders.id, providerId), eq(llmProviders.user_id, userId))
+  ).limit(1);
+
+  if (!provider) {
+    return c.json({ success: false, error: { code: 'PROVIDER_404', message: '服务商不存在' } }, 404);
+  }
+
+  let apiKey = '';
+  try {
+    apiKey = decrypt(provider.api_key_encrypted);
+  } catch {
+    apiKey = '';
+  }
+
+  return c.json({
+    success: true,
+    data: {
+      id: provider.id,
+      name: provider.name,
+      provider_type: provider.provider_type,
+      base_url: provider.base_url,
+      api_key: apiKey,
+      models: provider.models,
+      is_active: provider.is_active,
+      last_tested_at: provider.last_tested_at,
+      created_at: provider.created_at,
+      updated_at: provider.updated_at,
+    }
+  });
+});
+
 providersRoute.post('/', async (c) => {
   const userId = c.get('user_id') as string;
   const body = await c.req.json();
@@ -132,6 +168,15 @@ providersRoute.post('/:id/test', async (c) => {
     return c.json({ success: false, error: { code: 'PROVIDER_422', message: 'API Key解密失败' } }, 422);
   }
 
+  // 检查 API Key 是否为空
+  if (!apiKey || apiKey.trim() === '') {
+    await db.update(llmProviders).set({
+      is_active: false,
+      last_tested_at: new Date(),
+    }).where(eq(llmProviders.id, providerId));
+    return c.json({ success: false, error: { code: 'PROVIDER_422', message: '请填写API Key后再测试连接' } }, 422);
+  }
+
   let success = false;
   let httpStatus: number | undefined;
   let response: string | undefined;
@@ -170,7 +215,7 @@ providersRoute.post('/:id/test', async (c) => {
       success: false, 
       error: { 
         code: 'PROVIDER_422', 
-        message: '连接测试失败',
+        message: '连接测试失败，请检查API Key是否正确',
         details: { http_status: httpStatus, response }
       } 
     }, 422);

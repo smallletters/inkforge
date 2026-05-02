@@ -88,6 +88,19 @@ export default function ModelConfig() {
     },
   });
 
+  const handleEditProvider = async (providerId: string) => {
+    try {
+      const provider = await api.providers.get(providerId);
+      setEditingProvider(provider);
+      const config = providerTypes[provider.provider_type];
+      const currentModel = provider.models?.[0] || '';
+      setShowCustomModelInput(currentModel && !config.defaultModels.includes(currentModel));
+      setShowAddModal(true);
+    } catch (error) {
+      alert(`获取服务商信息失败: ${(error as Error).message}`);
+    }
+  };
+
   const testProvider = async (providerId: string) => {
     setTestingProvider(providerId);
     try {
@@ -175,14 +188,7 @@ export default function ModelConfig() {
             <div
               key={provider.id}
               className="agent-card"
-              onClick={() => {
-                setEditingProvider(provider);
-                // 检查是否是自定义模型
-                const config = providerTypes[provider.provider_type];
-                const currentModel = provider.models?.[0] || '';
-                setShowCustomModelInput(currentModel && !config.defaultModels.includes(currentModel));
-                setShowAddModal(true);
-              }}
+              onClick={() => handleEditProvider(provider.id)}
               role="button"
               tabIndex={0}
               aria-label={`编辑${provider.name}`}
@@ -252,13 +258,7 @@ export default function ModelConfig() {
                 <span className="btn-ghost" style={{ flex: 1, padding: '6px', fontSize: '11px', textAlign: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); testProvider(provider.id); }}>
                   <i className="fa-solid fa-wifi" aria-hidden="true"></i> 测试
                 </span>
-                <span className="btn-ghost" style={{ flex: 1, padding: '6px', fontSize: '11px', textAlign: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); {
-                  setEditingProvider(provider);
-                  const config = providerTypes[provider.provider_type];
-                  const currentModel = provider.models?.[0] || '';
-                  setShowCustomModelInput(currentModel && !config.defaultModels.includes(currentModel));
-                  setShowAddModal(true);
-                } }}>
+                <span className="btn-ghost" style={{ flex: 1, padding: '6px', fontSize: '11px', textAlign: 'center', cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); handleEditProvider(provider.id); }}>
                   <i className="fa-solid fa-pencil" aria-hidden="true"></i> 编辑
                 </span>
                 {showDeleteButtons && (

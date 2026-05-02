@@ -1,3 +1,11 @@
+/**
+ * 灵砚 InkForge - 模型适配器
+ * 作者: <smallletters@sina.com>
+ * 创建日期: 2026-05-02
+ * 
+ * 功能描述: 各种大模型API的适配器实现
+ */
+
 import { ProviderAdapter, ChatMessage, ChatOptions, ChatResponse } from './types';
 
 const DEFAULT_TIMEOUT = 60000;
@@ -80,6 +88,9 @@ export class OpenAIAdapter implements ProviderAdapter {
 
   async testConnection(): Promise<boolean> { 
     try { 
+      if (!this.apiKey || this.apiKey.trim() === '') {
+        throw new Error('API Key is empty');
+      }
       await Promise.race([this.listModels(), createTimeout(30000)]); 
       return true; 
     } catch { 
@@ -145,24 +156,27 @@ export class AnthropicAdapter implements ProviderAdapter {
   }
 
   async testConnection(): Promise<boolean> { 
-    const fn = async () => {
-      const resp = await fetch(`${this.baseUrl}/v1/messages`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json', 
-          'x-api-key': this.apiKey, 
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({ 
-          model: 'claude-3-5-haiku-20241022', 
-          messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
-          max_tokens: 10,
-        }),
-        signal: AbortSignal.timeout(30000),
-      });
-      return resp.ok;
-    };
     try {
+      if (!this.apiKey || this.apiKey.trim() === '') {
+        throw new Error('API Key is empty');
+      }
+      const fn = async () => {
+        const resp = await fetch(`${this.baseUrl}/v1/messages`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json', 
+            'x-api-key': this.apiKey, 
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({ 
+            model: 'claude-3-5-haiku-20241022', 
+            messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
+            max_tokens: 10,
+          }),
+          signal: AbortSignal.timeout(30000),
+        });
+        return resp.ok;
+      };
       return await withRetry(fn, DEFAULT_MAX_RETRIES, 1000);
     } catch {
       return false;
@@ -220,21 +234,20 @@ export class OpenAICompatibleAdapter implements ProviderAdapter {
   }
 
   async listModels(): Promise<string[]> {
-    try {
-      const resp = await fetch(`${this.baseUrl}/v1/models`, {
-        headers: { Authorization: `Bearer ${this.apiKey}` },
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!resp.ok) return [];
-      const json = await resp.json() as any;
-      return json.data?.map((m: any) => m.id) ?? [];
-    } catch {
-      return [];
-    }
+    const resp = await fetch(`${this.baseUrl}/v1/models`, {
+      headers: { Authorization: `Bearer ${this.apiKey}` },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!resp.ok) throw new Error(`${this.providerLabel} list models error: ${resp.status}`);
+    const json = await resp.json() as any;
+    return json.data?.map((m: any) => m.id) ?? [];
   }
 
   async testConnection(): Promise<boolean> {
     try {
+      if (!this.apiKey || this.apiKey.trim() === '') {
+        throw new Error('API Key is empty');
+      }
       await Promise.race([this.listModels(), createTimeout(30000)]);
       return true;
     } catch {
@@ -307,20 +320,19 @@ export class GeminiAdapter implements ProviderAdapter {
   }
 
   async listModels(): Promise<string[]> {
-    try {
-      const resp = await fetch(`${this.baseUrl}/v1beta/models?key=${this.apiKey}`, {
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!resp.ok) return [];
-      const json = await resp.json() as any;
-      return json.models?.map((m: any) => m.name.replace('models/', '')) ?? [];
-    } catch {
-      return [];
-    }
+    const resp = await fetch(`${this.baseUrl}/v1beta/models?key=${this.apiKey}`, {
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!resp.ok) throw new Error(`Gemini list models error: ${resp.status}`);
+    const json = await resp.json() as any;
+    return json.models?.map((m: any) => m.name.replace('models/', '')) ?? [];
   }
 
   async testConnection(): Promise<boolean> {
     try {
+      if (!this.apiKey || this.apiKey.trim() === '') {
+        throw new Error('API Key is empty');
+      }
       const resp = await fetch(`${this.baseUrl}/v1beta/models?key=${this.apiKey}`, {
         signal: AbortSignal.timeout(30000),
       });
