@@ -1,9 +1,9 @@
 /**
- * 灵砚 InkForge - 真相文件查看器
+ * 灵砚 InkForge - 记忆文件查看器
  * 作者：<smallletters@sina.com>
  * 创建日期：2026-05-02
  *
- * 功能描述：展示和管理作品真相文件，支持版本历史和Markdown渲染
+ * 功能描述：展示和管理作品记忆文件，支持版本历史和Markdown渲染
  */
 import { useState, useEffect } from 'react';
 import { api, ApiError } from '../lib/api';
@@ -181,7 +181,7 @@ export function TruthFilesViewer({ novelId }: { novelId: string }) {
   return (
     <div className="truth-files-viewer">
       <div className="truth-files-sidebar">
-        <h3>真相文件</h3>
+        <h3>记忆文件</h3>
         <ul className="truth-file-list">
           {Object.entries(TRUTH_FILE_NAMES).map(([key, label]) => {
             const fileInfo = files.find(f => f.file_name === key);

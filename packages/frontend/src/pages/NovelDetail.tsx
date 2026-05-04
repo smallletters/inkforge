@@ -3,7 +3,7 @@
  * 作者：<smallletters@sina.com>
  * 创建日期：2026-04-29
  *
- * 功能描述：展示作品详情，管理章节，查看真相文件
+ * 功能描述：展示作品详情，管理章节，查看记忆文件
  */
 import { useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -45,7 +45,7 @@ export default function NovelDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'chapters' | 'truth' | 'settings' | 'visualization'>('chapters');
+  const [activeTab, setActiveTab] = useState<'chapters' | 'truth' | 'settings' | 'visualization' | 'outline'>('chapters');
   const [writingNext, setWritingNext] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -457,10 +457,16 @@ export default function NovelDetail() {
             <i className="fa-solid fa-list mr-2" aria-hidden="true"></i>章节列表
           </button>
           <button
+            onClick={() => setActiveTab('outline')}
+            className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'outline' ? 'bg-white/10 text-text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'}`}
+          >
+            <i className="fa-solid fa-file-alt mr-2" aria-hidden="true"></i>大纲文件
+          </button>
+          <button
             onClick={() => setActiveTab('truth')}
             className={`px-5 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${activeTab === 'truth' ? 'bg-white/10 text-text-primary' : 'text-text-secondary hover:text-text-primary hover:bg-white/5'}`}
           >
-            <i className="fa-solid fa-database mr-2" aria-hidden="true"></i>真相文件
+            <i className="fa-solid fa-database mr-2" aria-hidden="true"></i>记忆文件
           </button>
           <button
             onClick={() => setActiveTab('visualization')}
@@ -567,7 +573,12 @@ export default function NovelDetail() {
           </div>
         )}
 
-        {/* 真相文件 */}
+        {/* 大纲文件 */}
+        {activeTab === 'outline' && (
+          <OutlinePanel novel={novel} novelId={id!} />
+        )}
+
+        {/* 记忆文件 */}
         {activeTab === 'truth' && (
           <TruthFilesPanel novelId={id!} />
         )}
@@ -587,6 +598,461 @@ export default function NovelDetail() {
       </main>
     </div>
   );
+}
+
+type OutlineFormat = 'json' | 'yaml' | 'markdown';
+
+function OutlinePanel({ novel, novelId }: { novel: any; novelId: string }) {
+  const queryClient = useQueryClient();
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [currentFormat, setCurrentFormat] = useState<OutlineFormat>('json');
+
+  // 将对象转换为不同格式的字符串
+  const formatOutline = (obj: any, format: OutlineFormat): string => {
+    if (!obj) {
+      if (format === 'json') return '{\n  \n}';
+      if (format === 'yaml') return '';
+      return '# 作品大纲\n\n';
+    }
+    switch (format) {
+      case 'json':
+        return JSON.stringify(obj, null, 2);
+      case 'yaml':
+        try {
+          // 简单的 YAML 转换，不依赖外部库
+          const dump = (data: any, indent = 0): string => {
+            const spaces = '  '.repeat(indent);
+            if (typeof data === 'string') {
+              // 多行字符串
+              if (data.includes('\n')) {
+                return ' |\n' + data.split('\n').map(line => spaces + '  ' + line).join('\n');
+              }
+              return ' ' + (data.includes(':') || data.startsWith('#') ? JSON.stringify(data) : data);
+            }
+            if (typeof data === 'number' || typeof data === 'boolean') {
+              return ' ' + data;
+            }
+            if (data === null || data === undefined) {
+              return ' null';
+            }
+            if (Array.isArray(data)) {
+              if (data.length === 0) return ' []';
+              return '\n' + data.map(item => spaces + '- ' + (typeof item === 'object' ? dump(item, indent + 1).trimStart() : (typeof item === 'string' ? item : JSON.stringify(item)))).join('\n');
+            }
+            if (typeof data === 'object') {
+              const entries = Object.entries(data);
+              if (entries.length === 0) return ' {}';
+              return '\n' + entries.map(([key, val]) => spaces + key + ':' + dump(val, indent + 1)).join('\n');
+            }
+            return ' ' + String(data);
+          };
+          return dump(obj);
+        } catch {
+          return JSON.stringify(obj, null, 2);
+        }
+      case 'markdown':
+        // 转换为 Markdown 格式
+        let md = '# 作品大纲\n\n';
+        const entries = Object.entries(obj);
+        if (entries.length === 0) return md;
+        for (const [key, value] of entries) {
+          const label = getOutlineLabel(key);
+          md += `## ${label}\n\n`;
+          if (typeof value === 'string') {
+            md += value + '\n\n';
+          } else if (Array.isArray(value)) {
+            for (const item of value) {
+              if (typeof item === 'string') {
+                md += `- ${item}\n`;
+              } else {
+                md += `- ${JSON.stringify(item)}\n`;
+              }
+            }
+            md += '\n';
+          } else if (typeof value === 'object' && value) {
+            for (const [k, v] of Object.entries(value)) {
+              md += `### ${k}\n\n`;
+              md += (typeof v === 'string' ? v : JSON.stringify(v)) + '\n\n';
+            }
+          } else {
+            md += JSON.stringify(value) + '\n\n';
+          }
+        }
+        return md;
+    }
+  };
+
+  // 从不同格式的字符串解析为对象
+  const parseOutline = (content: string, format: OutlineFormat): any => {
+    switch (format) {
+      case 'json':
+        return JSON.parse(content);
+      case 'yaml':
+        try {
+          // 简单的 YAML 解析
+          const parse = (str: string): any => {
+            const lines = str.trim().split('\n').filter(l => l.trim());
+            if (lines.length === 0) return {};
+            const result: any = {};
+            let currentKey: string | null = null;
+            let currentIndent = 0;
+            let currentValue: any[] = [];
+            let inMultiline = false;
+            for (let i = 0; i < lines.length; i++) {
+              const line = lines[i];
+              const leadingSpaces = line.match(/^ */)?.[0].length || 0;
+              const trimmed = line.trim();
+              if (!trimmed || trimmed.startsWith('#')) continue;
+              if (inMultiline) {
+                if (leadingSpaces <= currentIndent) {
+                  inMultiline = false;
+                  i--;
+                  continue;
+                }
+                if (currentKey) {
+                  if (Array.isArray(result[currentKey])) {
+                    const last = result[currentKey][result[currentKey].length - 1];
+                    result[currentKey][result[currentKey].length - 1] = last + '\n' + trimmed;
+                  } else {
+                    result[currentKey] += '\n' + trimmed;
+                  }
+                }
+                continue;
+              }
+              if (trimmed.startsWith('- ')) {
+                // 数组项
+                const value = trimmed.slice(2);
+                if (currentKey && leadingSpaces > currentIndent) {
+                  if (!Array.isArray(result[currentKey])) {
+                    result[currentKey] = [];
+                  }
+                  result[currentKey].push(parseValue(value));
+                }
+                continue;
+              }
+              const colonIdx = trimmed.indexOf(':');
+              if (colonIdx > 0) {
+                const key = trimmed.slice(0, colonIdx).trim();
+                let val = trimmed.slice(colonIdx + 1).trim();
+                if (val === '|') {
+                  // 多行字符串开始
+                  currentKey = key;
+                  currentIndent = leadingSpaces;
+                  inMultiline = true;
+                  result[key] = '';
+                  continue;
+                }
+                result[key] = parseValue(val);
+                currentKey = key;
+                currentIndent = leadingSpaces;
+              }
+            }
+            return result;
+          };
+          const parseValue = (val: string): any => {
+            if (val === 'true') return true;
+            if (val === 'false') return false;
+            if (val === 'null') return null;
+            if (val === '[]') return [];
+            if (val === '{}') return {};
+            try {
+              const num = parseFloat(val);
+              if (!isNaN(num) && String(num) === val) return num;
+            } catch {}
+            try {
+              return JSON.parse(val);
+            } catch {}
+            return val;
+          };
+          const result = parse(content);
+          return Object.keys(result).length > 0 ? result : {};
+        } catch (e) {
+          throw new Error('YAML 格式解析错误');
+        }
+      case 'markdown':
+        // 简单的 Markdown 解析
+        const obj: any = {};
+        const lines = content.split('\n');
+        let currentSection: string | null = null;
+        let currentBuffer: string[] = [];
+        for (const line of lines) {
+          const h2 = line.match(/^## (.+)$/);
+          if (h2) {
+            if (currentSection && currentBuffer.length > 0) {
+              obj[currentSection] = currentBuffer.join('\n').trim();
+            }
+            // 尝试从标签反向查找键名
+            const labelMap: Record<string, string> = {
+              '主线大纲': 'main_arc',
+              '副线大纲': 'sub_arcs',
+              '世界观设定': 'world_setting',
+              '时间线': 'timeline',
+              '人物弧线': 'character_arcs',
+              '主题': 'themes',
+              '关键情节点': 'plot_points',
+              '章节大纲': 'chapters_outline',
+            };
+            currentSection = labelMap[h2[1]] || h2[1];
+            currentBuffer = [];
+            continue;
+          }
+          if (currentSection) {
+            currentBuffer.push(line);
+          }
+        }
+        if (currentSection && currentBuffer.length > 0) {
+          obj[currentSection] = currentBuffer.join('\n').trim();
+        }
+        return obj;
+    }
+  };
+
+  const handleEdit = () => {
+    setEditContent(formatOutline(novel?.outline, currentFormat));
+    setIsEditing(true);
+  };
+
+  const handleSave = async () => {
+    setSaveStatus('saving');
+    try {
+      const parsed = parseOutline(editContent, currentFormat);
+      await api.novels.update(novelId, { outline: parsed });
+      setSaveStatus('success');
+      queryClient.invalidateQueries({ queryKey: ['novel', novelId] });
+      setTimeout(() => {
+        setIsEditing(false);
+        setSaveStatus('idle');
+      }, 1000);
+    } catch (err) {
+      setSaveStatus('error');
+      alert(`${currentFormat.toUpperCase()} 格式错误，请检查`);
+      setTimeout(() => setSaveStatus('idle'), 2000);
+    }
+  };
+
+  const handleCancel = () => {
+    setIsEditing(false);
+    setEditContent('');
+  };
+
+  const handleFormatChange = (newFormat: OutlineFormat) => {
+    if (isEditing && editContent) {
+      try {
+        // 解析当前内容，然后转换为新格式
+        const parsed = parseOutline(editContent, currentFormat);
+        setEditContent(formatOutline(parsed, newFormat));
+      } catch {
+        // 如果解析失败，直接重置
+        setEditContent(formatOutline(novel?.outline, newFormat));
+      }
+    } else if (!isEditing) {
+      setEditContent(formatOutline(novel?.outline, newFormat));
+    }
+    setCurrentFormat(newFormat);
+  };
+
+  const handleExport = () => {
+    const content = isEditing ? editContent : formatOutline(novel?.outline, currentFormat);
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `outline.${currentFormat}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const renderOutlinePreview = () => {
+    if (!novel?.outline || Object.keys(novel.outline).length === 0) {
+      return (
+        <div className="text-center py-12">
+          <i className="fa-solid fa-scroll text-4xl mb-4" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true"></i>
+          <p style={{ color: 'var(--text-secondary)' }}>暂无大纲内容</p>
+          <p style={{ color: 'var(--text-tertiary)', fontSize: '13px', marginTop: '8px' }}>点击上方编辑按钮添加作品大纲</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        {Object.entries(novel.outline).map(([key, value]) => (
+          <div key={key} className="p-4 rounded-lg bg-white/5 border border-white/10">
+            <div className="flex items-center gap-2 mb-2">
+              <i className="fa-solid fa-bookmark" style={{ color: 'var(--accent)', fontSize: '12px' }} aria-hidden="true"></i>
+              <span style={{ fontWeight: '600', color: 'var(--text-primary)', fontSize: '14px' }}>
+                {getOutlineLabel(key)}
+              </span>
+            </div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap' }}>
+              {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="glass-card p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>大纲文件</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>查看和编辑作品大纲</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {isEditing ? (
+            <>
+              <button className="btn-ghost text-sm px-3 py-1.5" onClick={handleCancel}>
+                取消
+              </button>
+              <button 
+                className="btn-accent text-sm px-3 py-1.5" 
+                onClick={handleSave}
+                disabled={saveStatus === 'saving'}
+              >
+                {saveStatus === 'saving' ? (
+                  <><i className="fa-solid fa-spinner animate-spin mr-1" aria-hidden="true"></i>保存中...</>
+                ) : saveStatus === 'success' ? (
+                  <><i className="fa-solid fa-check mr-1" aria-hidden="true"></i>已保存</>
+                ) : (
+                  <><i className="fa-solid fa-save mr-1" aria-hidden="true"></i>保存</>
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn-ghost text-sm px-3 py-1.5" onClick={handleExport} title="导出大纲">
+                <i className="fa-solid fa-download mr-1" aria-hidden="true"></i>导出
+              </button>
+              <button className="btn-ghost text-sm px-3 py-1.5" onClick={handleEdit}>
+                <i className="fa-solid fa-pen-to-square mr-1" aria-hidden="true"></i>编辑
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {isEditing ? (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-4">
+              <i className="fa-solid fa-code" style={{ color: 'var(--accent)', fontSize: '12px' }} aria-hidden="true"></i>
+              <div className="flex items-center gap-2">
+                {(['json', 'yaml', 'markdown'] as OutlineFormat[]).map((format) => (
+                  <button
+                    key={format}
+                    onClick={() => handleFormatChange(format)}
+                    className={`px-3 py-1.5 text-xs rounded-lg transition-all ${
+                      currentFormat === format
+                        ? 'bg-white/15 border border-white/30 text-accent font-medium'
+                        : 'bg-white/5 border border-transparent hover:bg-white/10 text-text-tertiary'
+                    }`}
+                  >
+                    {format.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <span style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>
+              {currentFormat.toUpperCase()} 格式编辑
+            </span>
+          </div>
+          <textarea
+            value={editContent}
+            onChange={(e) => setEditContent(e.target.value)}
+            className="w-full rounded-lg p-4"
+            style={{
+              background: 'rgba(0,0,0,0.4)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              color: 'var(--text-primary)',
+              fontSize: '13px',
+              fontFamily: 'var(--font-mono)',
+              lineHeight: '1.6',
+              minHeight: '400px',
+              resize: 'vertical'
+            }}
+            placeholder={`输入大纲${currentFormat.toUpperCase()}内容...`}
+          />
+          {saveStatus === 'error' && (
+            <p style={{ fontSize: '12px', color: '#f87171', marginTop: '8px' }}>
+              <i className="fa-solid fa-exclamation-circle mr-1" aria-hidden="true"></i>
+              {currentFormat.toUpperCase()} 格式错误，请检查语法
+            </p>
+          )}
+        </div>
+      ) : (
+        <div>
+          <div className="flex items-center gap-2 mb-4">
+            {(['json', 'yaml', 'markdown'] as OutlineFormat[]).map((format) => (
+              <button
+                key={format}
+                onClick={() => handleFormatChange(format)}
+                className={`px-3 py-1.5 text-xs rounded-lg transition-all ${
+                  currentFormat === format
+                    ? 'bg-white/15 border border-white/30 text-accent font-medium'
+                    : 'bg-white/5 border border-transparent hover:bg-white/10 text-text-tertiary'
+                }`}
+              >
+                {format.toUpperCase()} 预览
+              </button>
+            ))}
+          </div>
+          {currentFormat === 'json' || currentFormat === 'yaml' ? (
+            <pre style={{
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              padding: '16px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              color: 'var(--text-secondary)',
+              whiteSpace: 'pre-wrap',
+              fontFamily: 'var(--font-mono)',
+            }}>
+              {formatOutline(novel?.outline, currentFormat)}
+            </pre>
+          ) : (
+            <div style={{
+              background: 'rgba(0,0,0,0.3)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              padding: '16px',
+              borderRadius: '8px',
+              color: 'var(--text-secondary)',
+            }}>
+              <div style={{ lineHeight: '1.8' }} dangerouslySetInnerHTML={{
+                __html: formatOutline(novel?.outline, currentFormat)
+                  .replace(/^# (.*)$/gm, '<h1 style="font-size:1.5em;font-weight:700;margin:1em 0 0.5em 0;color:var(--text-primary)">$1</h1>')
+                  .replace(/^## (.*)$/gm, '<h2 style="font-size:1.2em;font-weight:600;margin:1em 0 0.5em 0;color:var(--text-primary)">$1</h2>')
+                  .replace(/^### (.*)$/gm, '<h3 style="font-size:1em;font-weight:600;margin:1em 0 0.5em 0;color:var(--text-primary)">$1</h3>')
+                  .replace(/^\* (.*)$/gm, '<li style="margin-left:1.5em;list-style-type:disc;">$1</li>')
+                  .replace(/^- (.*)$/gm, '<li style="margin-left:1.5em;list-style-type:disc;">$1</li>')
+                  .replace(/^(?:<li>)?(.*?)(?:<\/li>)?$/gm, (_, text) => {
+                    if (!text || text.startsWith('<h')) return text;
+                    return `<p style="margin:0.5em 0;">${text}</p>`;
+                  })
+              }} />
+            </div>
+          )}
+          {(!novel?.outline || Object.keys(novel.outline).length === 0) && renderOutlinePreview()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getOutlineLabel(key: string): string {
+  const labels: Record<string, string> = {
+    main_arc: '主线大纲',
+    sub_arcs: '副线大纲',
+    world_setting: '世界观设定',
+    timeline: '时间线',
+    character_arcs: '人物弧线',
+    themes: '主题',
+    plot_points: '关键情节点',
+    chapters_outline: '章节大纲',
+  };
+  return labels[key] || key;
 }
 
 function formatDate(dateStr?: string): string {
@@ -732,8 +1198,8 @@ function TruthFilesPanel({ novelId }: { novelId: string }) {
     <div className="glass-card p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>真相文件</h3>
-          <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>查看和编辑作品的7个真相文件</p>
+          <h3 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '4px' }}>记忆文件</h3>
+          <p style={{ fontSize: '13px', color: 'var(--text-tertiary)' }}>查看和编辑作品的7个记忆文件</p>
         </div>
         {selectedFile && (
           <button className="btn-ghost text-sm" onClick={handleClose}>

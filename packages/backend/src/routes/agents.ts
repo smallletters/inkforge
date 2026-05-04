@@ -17,7 +17,7 @@ type Variables = {
   username: string;
 };
 
-const VALID_AGENTS = ['plot-generator', 'worldbuilding', 'character-generator', 'dialogue-generator', 'emotion-craft', 'scene-designer', 'title-generator', 'description-enhancer', 'creative-mentor', 'consistency-checker', 'style-analyzer', 'planner', 'writer', 'auditor', 'reviser', 'architect', 'composer', 'observer', 'reflector', 'normalizer', 'radar', 'ai-detector', 'style-imitation', 'pacing-control'];
+const VALID_AGENTS = ['plot-generator', 'worldbuilding', 'character-generator', 'dialogue-generator', 'emotion-craft', 'scene-designer', 'title-generator', 'description-enhancer', 'creative-mentor', 'consistency-checker', 'style-analyzer', 'planner', 'writer', 'auditor', 'reviser', 'architect', 'composer', 'observer', 'reflector', 'normalizer', 'radar', 'ai-detector', 'style-imitation', 'pacing-control', 'orchestrator'];
 
 const AGENT_DESCRIPTIONS: Record<string, { name: string; description: string; default_model: string; default_temperature: number }> = {
   'plot-generator': {
@@ -163,6 +163,12 @@ const AGENT_DESCRIPTIONS: Record<string, { name: string; description: string; de
     description: '控制故事的节奏和张力',
     default_model: 'gpt-4o-mini',
     default_temperature: 0.7,
+  },
+  'orchestrator': {
+    name: '编剧',
+    description: '上下文构建与连贯性保证',
+    default_model: 'gpt-4o-mini',
+    default_temperature: 0.2,
   },
 };
 

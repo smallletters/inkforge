@@ -6,7 +6,7 @@
  * 功能描述：章节编辑和审计工作区，三栏布局，支持实时管线状态展示
  */
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useSSE } from '../hooks/useSSE';
@@ -42,6 +42,16 @@ export default function ChapterWorkspace() {
   const { id, chapterNumber } = useParams<{ id: string; chapterNumber: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [isEditing, setIsEditing] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const [history, setHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   const { isPro, features } = useSubscription();
   const { pipelineStatus, isConnected, resetPipeline } = useSSE(id);
@@ -74,6 +84,173 @@ export default function ChapterWorkspace() {
     },
   });
 
+  const saveChapterMutation = useMutation({
+    mutationFn: (content: string) => api.novels.updateChapter(id!, Number(chapterNumber!), content),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['chapter', id, chapterNumber] });
+      setIsEditing(false);
+    },
+  });
+
+  // 生成本地存储的key
+  const localStorageKey = `chapter-${id}-${chapterNumber}`;
+
+  // 当章节加载时，初始化编辑内容和标题
+  useEffect(() => {
+    if (chapter?.content) {
+      const savedContent = localStorage.getItem(localStorageKey);
+      if (savedContent && savedContent !== chapter.content) {
+        setEditContent(savedContent);
+        setHasUnsavedChanges(true);
+      } else {
+        setEditContent(chapter.content);
+      }
+      setEditTitle(chapter.title || '');
+    } else if (chapter) {
+      setEditTitle(chapter.title || '');
+    }
+  }, [chapter?.content, chapter?.title, localStorageKey]);
+
+  // 自动保存到本地存储
+  useEffect(() => {
+    if (isEditing && editContent) {
+      const timer = setTimeout(() => {
+        localStorage.setItem(localStorageKey, editContent);
+      }, 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [editContent, isEditing, localStorageKey]);
+
+  // 历史记录管理
+  const pushToHistory = (content: string) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(content);
+    if (newHistory.length > 50) newHistory.shift();
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  // 处理内容变化
+  const handleContentChange = (value: string) => {
+    if (historyIndex === -1 || value !== history[historyIndex]) {
+      pushToHistory(editContent);
+    }
+    setEditContent(value);
+    setHasUnsavedChanges(true);
+  };
+
+  // 撤销
+  const handleUndo = () => {
+    if (historyIndex > 0) {
+      setHistoryIndex(historyIndex - 1);
+      setEditContent(history[historyIndex - 1]);
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  // 重做
+  const handleRedo = () => {
+    if (historyIndex < history.length - 1) {
+      setHistoryIndex(historyIndex + 1);
+      setEditContent(history[historyIndex + 1]);
+      setHasUnsavedChanges(true);
+    }
+  };
+
+  // 格式化文本
+  const formatText = (formatType: 'bold' | 'italic' | 'underline') => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = editContent.substring(start, end);
+
+    let newText = '';
+    switch (formatType) {
+      case 'bold':
+        newText = `**${selectedText}**`;
+        break;
+      case 'italic':
+        newText = `*${selectedText}*`;
+        break;
+      case 'underline':
+        newText = `__${selectedText}__`;
+        break;
+    }
+
+    const newContent = editContent.substring(0, start) + newText + editContent.substring(end);
+    handleContentChange(newContent);
+
+    setTimeout(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start, start + newText.length);
+    }, 0);
+  };
+
+  // 计算字数（不含空格和换行）
+  const countWords = (text: string) => {
+    return text.replace(/\s/g, '').length;
+  };
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await saveChapterMutation.mutateAsync(editContent);
+      localStorage.removeItem(localStorageKey);
+      setHasUnsavedChanges(false);
+      setHistory([]);
+      setHistoryIndex(-1);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditContent(chapter?.content || '');
+    setEditTitle(chapter?.title || '');
+    setIsEditing(false);
+    setIsEditingTitle(false);
+    setHasUnsavedChanges(false);
+    localStorage.removeItem(localStorageKey);
+    setHistory([]);
+    setHistoryIndex(-1);
+  };
+
+  const toggleEdit = () => {
+    if (!isEditing) {
+      setEditContent(chapter?.content || '');
+      setEditTitle(chapter?.title || '');
+      setHistory([chapter?.content || '']);
+      setHistoryIndex(0);
+    }
+    setIsEditing(!isEditing);
+  };
+
+  // 章节统计
+  const getChapterStats = (text: string) => {
+    const wordCount = countWords(text);
+    const paragraphCount = text.split('\n').filter(p => p.trim()).length;
+    const readingTime = Math.ceil(wordCount / 300); // 假设每分钟读300字
+    return { wordCount, paragraphCount, readingTime };
+  };
+
+  // 上一章导航
+  const goToPrevChapter = () => {
+    const currentNum = Number(chapterNumber);
+    if (currentNum > 1) {
+      navigate(`/novels/${id}/chapters/${currentNum - 1}`);
+    }
+  };
+
+  // 下一章导航
+  const goToNextChapter = () => {
+    const currentNum = Number(chapterNumber);
+    if (chapters && currentNum < chapters.length) {
+      navigate(`/novels/${id}/chapters/${currentNum + 1}`);
+    }
+  };
+
   // 当管线完成时，刷新章节数据
   useEffect(() => {
     if (pipelineStatus?.status === 'completed' || pipelineStatus?.status === 'failed') {
@@ -101,7 +278,77 @@ export default function ChapterWorkspace() {
             <i className="fa-solid fa-chevron-left" style={{ marginRight: '6px' }} aria-hidden="true"></i>吞天魔帝
           </button>
           <div style={{ width: '1px', height: '16px', background: 'var(--border-subtle)' }} aria-hidden="true"></div>
-          <span style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text-primary)' }}>{chapter?.title || `第${chapterNumber}章`}</span>
+          
+          {/* 上一章/下一章导航 */}
+          <button 
+            onClick={goToPrevChapter} 
+            className="btn-ghost" 
+            style={{ padding: '4px 8px', fontSize: '12px' }}
+            disabled={Number(chapterNumber) <= 1}
+            title="上一章"
+          >
+            <i className="fa-solid fa-chevron-left" aria-hidden="true"></i>
+          </button>
+          <button 
+            onClick={goToNextChapter} 
+            className="btn-ghost" 
+            style={{ padding: '4px 8px', fontSize: '12px' }}
+            disabled={!chapters || Number(chapterNumber) >= chapters.length}
+            title="下一章"
+          >
+            <i className="fa-solid fa-chevron-right" aria-hidden="true"></i>
+          </button>
+          
+          <div style={{ width: '1px', height: '16px', background: 'var(--border-subtle)' }} aria-hidden="true"></div>
+          
+          {/* 章节标题编辑 */}
+          {isEditingTitle ? (
+            <input
+              ref={titleInputRef}
+              type="text"
+              value={editTitle}
+              onChange={(e) => {
+                setEditTitle(e.target.value);
+                if (isEditing) setHasUnsavedChanges(true);
+              }}
+              onBlur={() => setIsEditingTitle(false)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') setIsEditingTitle(false);
+              }}
+              style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--accent)',
+                borderRadius: '4px',
+                padding: '4px 8px',
+                fontSize: '14px',
+                fontWeight: '500',
+                color: 'var(--text-primary)',
+                outline: 'none',
+                minWidth: '200px'
+              }}
+              placeholder={`第${chapterNumber}章`}
+              autoFocus
+            />
+          ) : (
+            <span 
+              style={{ fontSize: '14px', fontWeight: '500', color: 'var(--text-primary)', cursor: 'pointer', padding: '4px 8px', borderRadius: '4px', border: '1px solid transparent' }}
+              onDoubleClick={() => {
+                setEditTitle(chapter?.title || '');
+                setIsEditingTitle(true);
+              }}
+              title="双击编辑标题"
+            >
+              {chapter?.title || `第${chapterNumber}章`}
+            </span>
+          )}
+          
+          {/* 未保存提示 */}
+          {hasUnsavedChanges && (
+            <span className="badge badge-accent" style={{ fontSize: '10px' }}>
+              <i className="fa-solid fa-circle mr-1" aria-hidden="true"></i>未保存
+            </span>
+          )}
+          
           {chapter?.status === 'reviewing' && (
             <span className="badge badge-accent" style={{ fontSize: '10px' }}>待确认</span>
           )}
@@ -118,32 +365,63 @@ export default function ChapterWorkspace() {
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button className="btn-ghost" style={{ padding: '6px 14px', fontSize: '12px' }}>
-            <i className="fa-regular fa-pen-to-square" aria-hidden="true"></i>编辑
-          </button>
-          {pipelineStatus?.status === 'running' ? (
-            <button disabled className="btn-accent" style={{ padding: '6px 16px', fontSize: '12px', opacity: 0.6, cursor: 'not-allowed' }}>
-              <i className="fa-solid fa-spinner animate-spin" aria-hidden="true"></i>生成中...
-            </button>
-          ) : (
-            features.advanced_pipeline ? (
+          {isEditing ? (
+            <>
+              <button 
+                className="btn-ghost" 
+                style={{ padding: '6px 14px', fontSize: '12px' }}
+                onClick={handleCancel}
+              >
+                取消
+              </button>
               <button 
                 className="btn-accent" 
                 style={{ padding: '6px 16px', fontSize: '12px' }}
-                onClick={() => writeNextMutation.mutate()}
+                onClick={handleSave}
+                disabled={isSaving}
               >
-                <i className="fa-solid fa-plus" aria-hidden="true"></i>写下一章
+                {isSaving ? (
+                  <><i className="fa-solid fa-spinner animate-spin mr-1" aria-hidden="true"></i>保存中...</>
+                ) : (
+                  <><i className="fa-solid fa-check mr-1" aria-hidden="true"></i>保存</>
+                )}
               </button>
-            ) : (
+            </>
+          ) : (
+            <>
               <button 
-                disabled 
-                className="btn-accent" 
-                style={{ padding: '6px 16px', fontSize: '12px', opacity: 0.5, cursor: 'not-allowed' }}
-                title="专业版功能"
+                className="btn-ghost" 
+                style={{ padding: '6px 14px', fontSize: '12px' }}
+                onClick={toggleEdit}
+                disabled={pipelineStatus?.status === 'running'}
               >
-                <i className="fa-solid fa-lock mr-1" aria-hidden="true"></i>写下一章
+                <i className="fa-regular fa-pen-to-square" aria-hidden="true"></i>编辑
               </button>
-            )
+              {pipelineStatus?.status === 'running' ? (
+                <button disabled className="btn-accent" style={{ padding: '6px 16px', fontSize: '12px', opacity: 0.6, cursor: 'not-allowed' }}>
+                  <i className="fa-solid fa-spinner animate-spin" aria-hidden="true"></i>生成中...
+                </button>
+              ) : (
+                features.advanced_pipeline ? (
+                  <button 
+                    className="btn-accent" 
+                    style={{ padding: '6px 16px', fontSize: '12px' }}
+                    onClick={() => writeNextMutation.mutate()}
+                  >
+                    <i className="fa-solid fa-plus" aria-hidden="true"></i>写下一章
+                  </button>
+                ) : (
+                  <button 
+                    disabled 
+                    className="btn-accent" 
+                    style={{ padding: '6px 16px', fontSize: '12px', opacity: 0.5, cursor: 'not-allowed' }}
+                    title="专业版功能"
+                  >
+                    <i className="fa-solid fa-lock mr-1" aria-hidden="true"></i>写下一章
+                  </button>
+                )
+              )}
+            </>
           )}
         </div>
       </header>
@@ -151,7 +429,7 @@ export default function ChapterWorkspace() {
       {/* 三栏 */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* 左侧栏 */}
-        <aside className="ch-sidebar" aria-label="章节列表">
+        <aside className="ch-sidebar" aria-label="章节列表" style={{ display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '14px', borderBottom: '1px solid var(--border-subtle)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
               <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-tertiary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>章节</span>
@@ -167,7 +445,7 @@ export default function ChapterWorkspace() {
               />
             </div>
           </div>
-          <div role="list" aria-label="章节目录">
+          <div role="list" aria-label="章节目录" style={{ flex: 1, overflow: 'auto' }}>
             {chapters?.map((ch: any) => {
               const isActive = ch.chapter_number === Number(chapterNumber);
               const isGenerating = ch.status === 'generating' || (pipelineStatus?.status === 'running' && ch.chapter_number === chapters.length + 1);
@@ -203,10 +481,43 @@ export default function ChapterWorkspace() {
               );
             })}
           </div>
+          
+          {/* 底部状态栏 - 固定在底部 */}
+          {chapter && (
+            <div style={{
+              padding: '10px 14px',
+              borderTop: '1px solid var(--border-subtle)',
+              fontSize: '11px',
+              color: 'var(--text-tertiary)',
+              background: 'rgba(255,255,255,0.02)',
+              flexShrink: 0,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center'
+            }}>
+              {(() => {
+                const stats = getChapterStats(chapter?.content || '');
+                return (
+                  <>
+                    {!isEditing && chapter?.updated_at && (
+                      <span style={{ fontSize: '10px' }}>
+                        更新: {new Date(chapter.updated_at).toLocaleDateString('zh-CN')}
+                      </span>
+                    )}
+                    <span>
+                      <i className="fa-solid fa-font mr-1" aria-hidden="true"></i>
+                      {stats.wordCount}字
+                    </span>
+                  </>
+                );
+              })()}
+            </div>
+          )}
         </aside>
 
         {/* 中间正文 */}
         <main className="content-area" role="main" aria-label="章节正文">
+          
           <div className="content-text">
             {isLoading ? (
               <div className="flex items-center justify-center py-20">
@@ -252,17 +563,49 @@ export default function ChapterWorkspace() {
                   )}
                 </div>
               </div>
+            ) : isEditing ? (
+              <textarea
+                ref={textareaRef}
+                value={editContent}
+                onChange={(e) => handleContentChange(e.target.value)}
+                style={{
+                  width: '100%',
+                  minHeight: '100%',
+                  background: 'transparent',
+                  border: 'none',
+                  outline: 'none',
+                  fontSize: '16px',
+                  lineHeight: '1.8',
+                  color: 'var(--text-primary)',
+                  resize: 'none',
+                  fontFamily: 'var(--font-serif)',
+                  padding: '0'
+                }}
+                placeholder="开始写作..."
+                aria-label="章节内容编辑器"
+              />
             ) : chapter?.content ? (
-              chapter.content.split('\n').map((p: string, index: number) => (
-                <p key={index}>{p || '\u00A0'}</p>
-              ))
+              <>
+                {chapter.content.split('\n').map((p: string, index: number) => (
+                  <p key={index}>{p || '\u00A0'}</p>
+                ))}
+              </>
             ) : (
               <div className="flex flex-col items-center justify-center py-20 text-center">
                 <i className="fa-solid fa-file-lines text-4xl mb-4" style={{ color: 'var(--text-tertiary)' }} aria-hidden="true"></i>
                 <h3 style={{ color: 'var(--text-secondary)', fontSize: '16px', marginBottom: '8px' }}>章节暂无内容</h3>
                 <p style={{ color: 'var(--text-tertiary)', fontSize: '13px' }}>
-                  点击右上角"写下一章"开始创作
+                  点击右上角"编辑"开始写作
                 </p>
+                {features.advanced_pipeline && (
+                  <button 
+                    onClick={toggleEdit}
+                    className="btn-accent mt-4" 
+                    style={{ padding: '8px 16px', fontSize: '12px' }}
+                  >
+                    <i className="fa-solid fa-pen-to-square mr-2" aria-hidden="true"></i>开始写作
+                  </button>
+                )}
               </div>
             )}
           </div>
