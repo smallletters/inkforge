@@ -22,6 +22,7 @@
 - **校对员 Normalizer**：格式标准化
 - **审计员 Auditor**：33维度质量审计
 - **修订者 Reviser**：问题修复与优化
+![alt text](image-1.png)
 
 ### 🤝 7真相文件系统
 
@@ -34,6 +35,8 @@
 - `subplot_board.md` — 支线进度板
 - `emotional_arcs.md` — 情感弧线
 - `character_matrix.md` — 角色交互矩阵
+
+![alt text](image.png)
 
 ### 🔧 多模型路由
 
@@ -195,6 +198,9 @@ inkforge/
 3. 选择模型服务商和具体模型
 4. 自定义System Prompt（支持变量注入）
 5. 全局应用或按作品覆盖
+
+### 自定义工作流配置
+![alt text](image-2.png)
 
 ## 🏛️ 技术架构
 
